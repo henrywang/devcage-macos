@@ -1,0 +1,313 @@
+" VIM Configuration for Macbook Air M5
+" XDG-compliant vim configuration
+
+" Environment
+if empty($XDG_CONFIG_HOME) | let $XDG_CONFIG_HOME = $HOME . '/.config' | endif
+if empty($XDG_DATA_HOME)   | let $XDG_DATA_HOME   = $HOME . '/.local/share' | endif
+if empty($XDG_CACHE_HOME)  | let $XDG_CACHE_HOME  = $HOME . '/.cache' | endif
+
+set directory=$XDG_CACHE_HOME/vim/swap,~/,/tmp
+set backupdir=$XDG_CACHE_HOME/vim/backup,~/,/tmp
+set undodir=$XDG_CACHE_HOME/vim/undo,~/,/tmp
+set viminfo+=n$XDG_CACHE_HOME/vim/viminfo
+set runtimepath+=$XDG_CONFIG_HOME/vim,$XDG_CONFIG_HOME/vim/after,$VIM,$VIMRUNTIME
+
+" Enable vim-plug automatic installation if it does not exist
+if empty(glob($XDG_CONFIG_HOME . '/vim/autoload/plug.vim'))
+  silent execute '!curl -fLo ' . $XDG_CONFIG_HOME . '/vim/autoload/plug.vim --create-dirs https://raw.githubusercontent.com/junegunn/vim-plug/master/plug.vim'
+  autocmd VimEnter * :PlugInstall --sync | source $MYVIMRC
+endif
+
+" Section: General Config {{{1
+" Change shell
+set shell=zsh
+
+" Editing behaviour {{{
+set showmode                    " always show what mode we're currently editing in
+set hidden                      " buffer is modified, automatically hide it when we navigate away from it.
+set showbreak=\ \
+set tabstop=4                   " insert 4 spaces for a tab
+set softtabstop=4               " when hitting <BS>, pretend like a tab is removed, even if spaces
+set shiftwidth=4                " to change the number of space characters inserted for indentation
+set expandtab                   " to insert space characters whenever the tab key is pressed
+set shiftround                  " use multiple of shiftwidth when indenting
+set smarttab                    " insert tabs on the start of a line according to shiftwidth, not tabstop
+set backspace=indent,eol,start  " backspace works in Insert mode
+set autoindent                  " always set autoindenting on
+set copyindent                  " copy the previous indentation on autoindenting
+set showmatch                   " cursor will briefly jump to the matching brace
+set matchtime=3                 " make vim wait for 0.3 sec
+set ignorecase                  " /the will find the or The or THE
+set smartcase                   " /The would find only The, while /the would find the or The etc
+set hlsearch                    " highlight search terms
+set incsearch                   " show search matches as you type
+set listchars=tab:▸\ ,trail:·,extends:#,nbsp:·
+set list                        " to visualise tabs, spaces, and line endings
+set fileformats="unix,dos,mac"
+set encoding=utf-8
+
+"paste mode
+set pastetoggle=<F3>
+
+" change height of the terminal
+set termwinsize=10x0
+
+" line number setting
+:set number relativenumber
+:augroup numbertoggle
+:  autocmd!
+:  autocmd BufEnter,FocusGained,InsertLeave * set relativenumber
+:  autocmd BufLeave,FocusLost,InsertEnter   * set norelativenumber
+:augroup END
+
+" Press Space to turn off highlighting and clear any message already displayed.
+nnoremap <silent> <Space> :nohlsearch<Bar>:echo<CR>
+
+" make the 101st and the 81st columns stand out
+highlight ColorColumn term=reverse ctermbg=237 guibg=#3c3836
+call matchadd('ColorColumn', '\%101v', 100)
+call matchadd('ColorColumn', '\%81v', 100)
+
+" automatically turn on spell-checking for Markdown files and gitcommit
+autocmd BufRead,BufNewFile *.md setlocal spell spelllang=en_us
+autocmd FileType gitcommit setlocal spell spelllang=en_us
+" toggle spelling use \s
+imap <Leader>s <C-o>:setlocal spell! spelllang=en_us<CR>
+nmap <Leader>s :setlocal spell! spelllang=en_us<CR>
+
+" turning on spell-checking will turn on word completion
+set complete+=kspell
+
+" Shortcut mappings {{{
+" Edit and source the vimrc file
+nnoremap <silent> <leader>ev :e $MYVIMRC<CR>
+nnoremap <silent> <leader>sv :so $MYVIMRC<CR>
+
+" Easy window navigation
+noremap <C-h> <C-w>h
+noremap <C-j> <C-w>j
+noremap <C-k> <C-w>k
+noremap <C-l> <C-w>l
+
+" disable up, down, left, right keys for insert and visual mode
+inoremap <Up> <NOP>
+vnoremap <Up> <NOP>
+inoremap <Down> <NOP>
+vnoremap <Down> <NOP>
+inoremap <Left> <NOP>
+vnoremap <Left> <NOP>
+inoremap <Right> <NOP>
+vnoremap <Right> <NOP>
+
+" Strip all trailing whitespace from a file, using ,W
+nnoremap <leader>W :%s/\s\+$//<CR>:let @/=''<CR>
+
+" netrw setting
+let g:netrw_banner = 0
+let g:netrw_liststyle = 3
+
+" buffer switching
+let g:airline#extensions#tabline#enabled = 1
+let g:airline#extensions#tabline#buffer_nr_show = 1
+nnoremap  <silent> <tab>  :if &modifiable && !&readonly && &modified <CR> :write<CR> :endif<CR>:bnext<CR>
+nnoremap  <silent> <s-tab>  :if &modifiable && !&readonly && &modified <CR> :write<CR> :endif<CR>:bprevious<CR>
+
+" expand the directory of the current file anywhere at the command line by pressing %%
+cnoremap %% <C-R>=fnameescape(expand('%:h')).'/'<cr>
+
+" open terminal below all splits
+cabbrev bterm botright terminal
+
+" }}}
+
+" VIM Plugins {{{
+call plug#begin($XDG_DATA_HOME . '/vim/plugged')
+
+" vim-airline
+Plug 'vim-airline/vim-airline'
+" Adds filetype glyphs (icons) to various vim plugins
+Plug 'ryanoasis/vim-devicons'
+" gruvbox theme
+" Plug 'morhetz/gruvbox'
+" gitgutter shows a git diff in the gutter (sign column)
+Plug 'airblade/vim-gitgutter'
+" see the current git branch in airline
+Plug 'tpope/vim-fugitive'
+" surroundings: parentheses, brackets, quotes, XML tags, and more
+Plug 'tpope/vim-surround'
+" comment stuff out - gcc(a line), gc+motion(gcap), gc in visual mode
+Plug 'tpope/vim-commentary'
+" remaps . in a way that plugins can tap into it
+Plug 'tpope/vim-repeat'
+" plugins for javascript and react
+Plug 'pangloss/vim-javascript'
+Plug 'maxmellon/vim-jsx-pretty'
+" asynchronous lint engine
+Plug 'dense-analysis/ale'
+" code completion engine
+Plug 'neoclide/coc.nvim', {'branch': 'release'}
+" text object
+Plug 'kana/vim-textobj-user'
+Plug 'kana/vim-textobj-indent'
+Plug 'kana/vim-textobj-entire'
+Plug 'kana/vim-textobj-line'
+" copying / pasting text to the os specific clipboard
+Plug 'christoomey/vim-system-copy'
+" fzf for vim
+Plug 'junegunn/fzf.vim'
+" for ansible
+Plug 'pearofducks/ansible-vim'
+" Auto close parentheses and repeat by dot dot dot
+Plug 'cohama/lexima.vim'
+" Python syntax highlighting
+Plug 'hdima/python-syntax'
+" kitty config syntax highlighting for vim
+Plug 'fladson/vim-kitty'
+" file system explorer for the Vim editor
+Plug 'preservim/nerdtree'
+" adds syntax for nerdtree on most common file extensions
+Plug 'tiagofumo/vim-nerdtree-syntax-highlight'
+" showing git status flags in nerdtree
+Plug 'Xuyuanp/nerdtree-git-plugin'
+" markdown preview
+Plug 'instant-markdown/vim-instant-markdown', {'for': 'markdown', 'do': 'yarn install'}
+
+call plug#end()
+
+" }}}
+
+" fzf.vim setting {{{
+nnoremap <S-p> :Files<Cr>
+command! -bang -nargs=? -complete=dir Files
+  \ call fzf#vim#files(<q-args>, fzf#vim#with_preview(), <bang>0)
+
+command! -bang -nargs=* Rg
+  \ call fzf#vim#grep(
+  \   'rg --column --line-number --no-heading --color=always --hidden --smart-case '.shellescape(<q-args>), 1,
+  \   <bang>0 ? fzf#vim#with_preview('up:60%')
+  \           : fzf#vim#with_preview('right:50%:hidden', '?'),
+  \   <bang>0)
+
+let g:fzf_action = {
+  \ 'ctrl-t': 'tab split',
+  \ 'ctrl-x': 'split',
+  \ 'ctrl-v': 'vsplit' }
+
+"}}}
+" ale setting {{{
+let g:ale_fix_on_save = 1
+let g:ale_set_loclist = 1
+let g:ale_set_quickfix = 0
+
+" }}}
+
+" coc.nvim settings {{{
+" Use tab for trigger completion with characters ahead and navigate
+inoremap <silent><expr> <TAB>
+      \ coc#pum#visible() ? coc#pum#next(1) :
+      \ CheckBackspace() ? "\<Tab>" :
+      \ coc#refresh()
+inoremap <expr><S-TAB> coc#pum#visible() ? coc#pum#prev(1) : "\<C-h>"
+
+" Make <CR> to accept selected completion item
+inoremap <silent><expr> <CR> coc#pum#visible() ? coc#pum#confirm()
+                              \: "\<C-g>u\<CR>\<c-r>=coc#on_enter()\<CR>"
+
+function! CheckBackspace() abort
+  let col = col('.') - 1
+  return !col || getline('.')[col - 1]  =~# '\s'
+endfunction
+
+" Use <c-space> to trigger completion
+inoremap <silent><expr> <c-space> coc#refresh()
+
+" GoTo code navigation
+nmap <silent> gd <Plug>(coc-definition)
+nmap <silent> gy <Plug>(coc-type-definition)
+nmap <silent> gi <Plug>(coc-implementation)
+nmap <silent> gr <Plug>(coc-references)
+
+" Use K to show documentation in preview window
+nnoremap <silent> K :call ShowDocumentation()<CR>
+
+function! ShowDocumentation()
+  if CocAction('hasProvider', 'hover')
+    call CocActionAsync('doHover')
+  else
+    call feedkeys('K', 'in')
+  endif
+endfunction
+
+" Symbol renaming
+nmap <leader>rn <Plug>(coc-rename)
+
+" Formatting selected code
+xmap <leader>f  <Plug>(coc-format-selected)
+nmap <leader>f  <Plug>(coc-format-selected)
+
+" Applying code actions
+nmap <leader>ac <Plug>(coc-codeaction-cursor)
+nmap <leader>qf <Plug>(coc-fix-current)
+
+" Show all diagnostics
+nnoremap <silent> <leader>d :<C-u>CocList diagnostics<cr>
+
+" }}}
+
+" vim-jsx-pretty setting {{{
+let g:vim_jsx_pretty_colorful_config = 1
+let g:vim_jsx_pretty_template_tags = []
+
+" }}}
+
+" vim-gitgutter setting {{{
+set updatetime=100
+autocmd BufWinLeave * GitGutter
+
+" }}}
+
+" airline settings {{{
+let g:airline_theme = 'ghostty_dark'
+let g:airline_powerline_fonts = 1
+let g:airline#extensions#ale#enabled = 1
+let g:airline#extensions#tabline#enabled = 1
+let g:airline#extensions#tabline#left_sep = ' '
+let g:airline#extensions#tabline#left_alt_sep = '|'
+let g:airline#extensions#tabline#formatter = 'default'
+
+" }}}
+
+" Ghostty Default StyleDark colorscheme
+colorscheme ghostty-dark
+
+" }}}
+
+" ansible-vim
+let g:ansible_name_highlight = 'd'
+
+" Jenkinsfile uses grovvy syntax hightlight
+au BufNewFile,BufRead Jenkinsfile* setf groovy
+
+" python syntax highlighting plugin seetings
+let python_highlight_all = 1
+
+set noshowmode
+
+" NERTDTree settings
+nnoremap <S-t> :NERDTreeToggle<CR>
+nnoremap <S-f> :NERDTreeFind<CR>
+
+" Exit Vim if NERDTree is the only window remaining in the only tab.
+autocmd BufEnter * if tabpagenr('$') == 1 && winnr('$') == 1 && exists('b:NERDTree') && b:NERDTree.isTabTree() | call feedkeys(":quit\<CR>:\<BS>") | endif
+
+" Close the tab if NERDTree is the only window remaining in it.
+autocmd BufEnter * if winnr('$') == 1 && exists('b:NERDTree') && b:NERDTree.isTabTree() | call feedkeys(":quit\<CR>:\<BS>") | endif
+
+" If another buffer tries to replace NERDTree, put it in the other window, and bring back NERDTree.
+autocmd BufEnter * if winnr() == winnr('h') && bufname('#') =~ 'NERD_tree_\d\+' && bufname('%') !~ 'NERD_tree_\d\+' && winnr('$') > 1 |
+            \ let buf=bufnr() | buffer# | execute "normal! \<C-W>w" | execute 'buffer'.buf | endif
+
+" Terminal workarounds
+let &t_TI = "\<Esc>[>4;2m"
+let &t_TE = "\<Esc>[>4;m"
+set t_RV=

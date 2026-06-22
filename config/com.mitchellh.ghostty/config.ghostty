@@ -1,0 +1,58 @@
+# Ghostty Terminal Configuration
+# https://ghostty.org/docs/config
+
+# ============================================================
+# Theme
+# ============================================================
+theme = Ghostty Default Style Dark
+
+# ============================================================
+# Font
+# ============================================================
+font-size = 15
+font-thicken = true
+font-family = "JetBrainsMono Nerd Font Mono"
+
+# ============================================================
+# Window
+# ============================================================
+window-padding-x = 8
+window-padding-y = 8
+window-padding-color = background
+window-decoration = true
+macos-titlebar-style = tabs
+macos-window-buttons = hidden
+
+# ============================================================
+# Cursor
+# ============================================================
+cursor-style = block
+cursor-style-blink = false
+
+# ============================================================
+# Shell Integration
+# ============================================================
+shell-integration = detect
+
+# ============================================================
+# Clipboard
+# ============================================================
+clipboard-read = allow
+clipboard-write = allow
+clipboard-paste-protection = false
+
+# ============================================================
+# Scrollback
+# ============================================================
+scrollback-limit = 10000000
+
+# ============================================================
+# Keybindings
+# ============================================================
+keybind = ctrl+shift+c=copy_to_clipboard
+keybind = ctrl+shift+v=paste_from_clipboard
+keybind = ctrl+shift+n=new_window
+keybind = ctrl+plus=increase_font_size:1
+keybind = ctrl+minus=decrease_font_size:1
+keybind = ctrl+0=reset_font_size
+keybind = ctrl+enter=toggle_maximize

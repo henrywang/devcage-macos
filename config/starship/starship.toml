@@ -1,0 +1,27 @@
+add_newline = false
+
+format = "$directory$git_branch$git_status$python$line_break$character"
+
+[directory]
+truncation_length = 3
+truncate_to_repo = false
+
+[git_branch]
+format = "[$branch]($style) "
+style = "bold purple"
+
+[git_status]
+format = "([$all_status$ahead_behind]($style) )"
+style = "bold red"
+
+[python]
+# Show whenever a venv is active, regardless of directory contents
+detect_extensions = []
+detect_files = []
+detect_folders = []
+format = '(\($virtualenv\) )'
+style = "yellow"
+
+[character]
+success_symbol = "[❯](bold green)"
+error_symbol = "[❯](bold red)"

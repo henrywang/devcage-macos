@@ -1,0 +1,23 @@
+
+# npm
+npm-debug.log
+
+# VIM
+*.un~
+Session.vim
+.netrwhist
+*~
+*.swp
+.lvimrc
+
+# VS Code
+.vscode/
+# localhistory
+.history
+
+# Over-arching stuff
+*.ignored/
+*.ignored.*
+
+# eslint
+.eslintcache
