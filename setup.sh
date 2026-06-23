@@ -87,6 +87,12 @@ ln -sf  "$DOTFILES/config/.claude/.CLAUDE.md"   "$HOME/.claude/CLAUDE.md"
 ln -sf  "$DOTFILES/config/.claude/settings.json" "$HOME/.claude/settings.json"
 ln -sfn "$DOTFILES/config/.claude/agents"        "$HOME/.claude/agents"
 
+# LaunchAgents — loaded once here; macOS auto-loads them on every login
+mkdir -p "$HOME/Library/LaunchAgents"
+ln -sf "$DOTFILES/config/LaunchAgents/com.user.vpn-keepalive.plist" \
+       "$HOME/Library/LaunchAgents/com.user.vpn-keepalive.plist"
+launchctl load "$HOME/Library/LaunchAgents/com.user.vpn-keepalive.plist" 2>/dev/null || true
+
 echo "==> Adding SSH key..."
 # Copy your existing id_ed25519 and id_ed25519.pub into ~/.ssh before running this.
 mkdir -p "$HOME/.ssh"
