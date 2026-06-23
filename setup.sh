@@ -51,6 +51,10 @@ if [ ! -d "$ZSH_DIR/zsh-history-substring-search" ]; then
     git clone --depth=1 https://github.com/zsh-users/zsh-history-substring-search "$ZSH_DIR/zsh-history-substring-search"
 fi
 
+# Suppress "Last login: Tue Jun 23 00:34:09 on ttys001" when open ghostty terminal
+echo "==> Suppressing last login message..."
+touch "$HOME/.hushlogin"
+
 echo "==> Creating symlinks..."
 mkdir -p "$HOME/.config"
 
