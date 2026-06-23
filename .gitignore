@@ -1,0 +1,29 @@
+# ============================================================
+# Zsh — plugin dirs cloned by setup.sh, runtime files
+# ============================================================
+config/zsh/zsh-autosuggestions/
+config/zsh/zsh-syntax-highlighting/
+config/zsh/zsh-history-substring-search/
+config/zsh/.zhistory
+config/zsh/.zcompdump*
+config/zsh/.zsh_sessions/
+
+# ============================================================
+# Vim — plugin data and runtime artefacts
+# ============================================================
+config/vim/plugged/
+config/vim/.netrwhist
+config/vim/coc-settings.json
+# plug.vim is auto-installed by vimrc on first launch
+config/vim/autoload/plug.vim
+
+# ============================================================
+# coc.nvim data directory
+# ============================================================
+config/coc/
+
+# ============================================================
+# Secrets — never commit
+# ============================================================
+*.env
+.env*
