@@ -77,10 +77,11 @@ mkdir -p "$HOME/Library/Application Support/com.mitchellh.ghostty"
 ln -sf  "$DOTFILES/config/com.mitchellh.ghostty/config.ghostty" \
         "$HOME/Library/Application Support/com.mitchellh.ghostty/config.ghostty"
 
-# claude code — global instructions and settings
+# claude code — global instructions, settings, and agents
 mkdir -p "$HOME/.claude"
 ln -sf  "$DOTFILES/config/.claude/.CLAUDE.md"   "$HOME/.claude/CLAUDE.md"
 ln -sf  "$DOTFILES/config/.claude/settings.json" "$HOME/.claude/settings.json"
+ln -sfn "$DOTFILES/config/.claude/agents"        "$HOME/.claude/agents"
 
 echo "==> Adding SSH key..."
 # Copy your existing id_ed25519 and id_ed25519.pub into ~/.ssh before running this.
