@@ -72,6 +72,10 @@ ln -sfn "$DOTFILES/config/vim"          "$HOME/.config/vim"
 # starship
 ln -sfn "$DOTFILES/config/starship"     "$HOME/.config/starship"
 
+# zed
+mkdir -p "$HOME/.config/zed"
+ln -sf  "$DOTFILES/config/zed/settings.json" "$HOME/.config/zed/settings.json"
+
 # ghostty
 mkdir -p "$HOME/Library/Application Support/com.mitchellh.ghostty"
 ln -sf  "$DOTFILES/config/com.mitchellh.ghostty/config.ghostty" \
