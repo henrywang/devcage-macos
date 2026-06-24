@@ -9,6 +9,7 @@ Install these manually from the **App Store** before running the setup script:
 | App | Purpose |
 |-----|---------|
 | **1Password** | Password manager |
+| **Amphetamine** | Prevent Mac sleep (keeps VPN alive) |
 | **Xcode** | iOS / macOS development (optional) |
 
 Xcode Command Line Tools are handled automatically by `setup.sh`.
