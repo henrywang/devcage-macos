@@ -153,7 +153,8 @@ Plug 'kana/vim-textobj-entire'
 Plug 'kana/vim-textobj-line'
 " copying / pasting text to the os specific clipboard
 Plug 'christoomey/vim-system-copy'
-" fzf for vim
+" fzf for vim — core plugin from Homebrew, then fzf.vim on top
+Plug '/opt/homebrew/opt/fzf'
 Plug 'junegunn/fzf.vim'
 " for ansible
 Plug 'pearofducks/ansible-vim'

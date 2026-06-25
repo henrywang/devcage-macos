@@ -103,3 +103,35 @@ Zsh uses XDG-style config via `ZDOTDIR=$HOME/.config/zsh` (set in `~/.zshenv`).
 ## SSH Key
 
 Copy your existing `id_ed25519` and `id_ed25519.pub` into `~/.ssh` before running `setup.sh`. The script will load the key into the macOS Keychain via `ssh-add --apple-use-keychain`.
+
+## Manual System Settings
+
+Things that can't be scripted — configure these by hand after running `setup.sh`.
+
+### Trackpad
+
+| Setting | Path |
+|---------|------|
+| Three finger drag | System Settings → Accessibility → Pointer Control → Trackpad Options → Use trackpad for dragging → **Three Finger Drag** |
+
+### Menu Bar
+
+| Setting | Path |
+|---------|------|
+| Clock: analog only, no date | System Settings → Control Center → Clock → Style: **Analog**, Show Date: **Never** |
+| Show VPN in menu bar | System Settings → Control Center → VPN → **Show in Menu Bar** |
+| Hide all other menu bar icons | System Settings → Control Center → set everything else (Wi-Fi, Bluetooth, Battery, etc.) to **Don't Show in Menu Bar**; keep only Control Center and VPN |
+
+### VPN
+
+| Setting | Path |
+|---------|------|
+| Add Cisco IPsec VPN | System Settings → VPN → **Add VPN Configuration** → Cisco IPSec → fill in server, account, password, and shared secret |
+
+### Apps (post-install)
+
+| App | What to configure |
+|-----|-------------------|
+| **Rectangle** | Launch at login; import keybindings if needed |
+| **Stats** | Choose which stats to display in the menu bar |
+| **Amphetamine** | Enable **Launch at Login**; configure session triggers to keep VPN connection alive |
