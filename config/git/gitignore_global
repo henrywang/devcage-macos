@@ -21,3 +21,5 @@ Session.vim
 
 # eslint
 .eslintcache
+
+**/.claude/settings.local.json

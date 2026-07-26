@@ -34,6 +34,11 @@ if ! command -v claude &>/dev/null; then
     npm install -g @anthropic-ai/claude-code
 fi
 
+echo "==> Installing pi..."
+if ! command -v pi &>/dev/null; then
+    curl -fsSL https://pi.dev/install.sh | sh
+fi
+
 echo "==> Installing instant-markdown-d (vim-instant-markdown daemon)..."
 if ! command -v instant-markdown-d &>/dev/null; then
     npm install -g instant-markdown-d
@@ -86,6 +91,36 @@ mkdir -p "$HOME/.claude"
 ln -sf  "$DOTFILES/config/.claude/.CLAUDE.md"   "$HOME/.claude/CLAUDE.md"
 ln -sf  "$DOTFILES/config/.claude/settings.json" "$HOME/.claude/settings.json"
 ln -sfn "$DOTFILES/config/.claude/agents"        "$HOME/.claude/agents"
+
+# agent workflow — see WORKFLOW.md. Only prompts/, extensions/, and skills/ are
+# linked: ~/.pi/agent/settings.json is rewritten by pi on upgrade, so tracking it
+# would produce spurious diffs.
+mkdir -p "$HOME/bin" "$HOME/.pi/agent/prompts" "$HOME/.pi/agent/extensions" "$HOME/.pi/agent/skills"
+chmod +x "$DOTFILES/config/herdr/wq"
+ln -sf  "$DOTFILES/config/herdr/wq"          "$HOME/bin/wq"
+ln -sf  "$DOTFILES/config/.pi/prompts/go.md" "$HOME/.pi/agent/prompts/go.md"
+
+# herdr agent integrations: without these, agent state is inferred from terminal
+# output and panes do not resume across a server restart.
+if command -v herdr &>/dev/null; then
+    herdr integration install pi
+    herdr integration install claude
+fi
+for ext in "$DOTFILES"/config/.pi/extensions/*.ts; do
+    [ -e "$ext" ] || continue   # unmatched glob stays literal; set -e would abort on it
+    ln -sf "$ext" "$HOME/.pi/agent/extensions/$(basename "$ext")"
+done
+# One symlink per skill, so skills installed by pi itself stay untouched.
+for skill in "$DOTFILES"/config/.pi/skills/*/; do
+    [ -d "$skill" ] || continue
+    dest="$HOME/.pi/agent/skills/$(basename "$skill")"
+    if [ -e "$dest" ] && [ ! -L "$dest" ]; then
+        # Linking onto a real directory would nest the link inside it instead.
+        echo "    skipping $(basename "$skill"): $dest exists and is not a symlink"
+    else
+        ln -sfn "${skill%/}" "$dest"
+    fi
+done
 
 echo "==> Adding SSH key..."
 # Copy your existing id_ed25519 and id_ed25519.pub into ~/.ssh before running this.
