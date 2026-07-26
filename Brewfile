@@ -6,6 +6,7 @@ brew "lsd"
 brew "ripgrep"
 brew "starship"
 brew "node"
+brew "herdr"
 
 # GUI Apps
 cask "firefox"

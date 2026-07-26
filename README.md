@@ -40,6 +40,7 @@ Then open a new shell for all changes to take effect.
 | ripgrep | CLI | Fast recursive search |
 | starship | CLI | Cross-shell prompt |
 | node | CLI | JavaScript runtime |
+| herdr | CLI | Terminal workspace / pane orchestrator for agents |
 | firefox | App | Web browser |
 | ghostty | App | Terminal emulator |
 | zed | App | Code editor |
@@ -54,6 +55,9 @@ Then open a new shell for all changes to take effect.
 |------|-----------|---------|
 | Rust + rustfmt + clippy | rustup | Systems programming |
 | Claude Code | npm | AI coding assistant |
+| pi | pi.dev install script | AI coding agent |
+
+`herdr` and `pi` together drive the agent workflow — see [WORKFLOW.md](WORKFLOW.md).
 
 ### Zsh plugins (cloned into `config/zsh/`)
 
@@ -67,7 +71,21 @@ Then open a new shell for all changes to take effect.
 devcage-macos/
 ├── Brewfile                              # Homebrew packages
 ├── setup.sh                             # Setup automation
+├── WORKFLOW.md                          # herdr + pi agent workflow
 └── config/
+    ├── .claude/                         # Claude Code global config
+    │   ├── .CLAUDE.md                   # Global instructions
+    │   ├── settings.json                # Global settings
+    │   └── agents/                      # Custom agents
+    ├── .pi/
+    │   ├── prompts/go.md                # pi router prompt
+    │   ├── extensions/                  # pi extensions (TypeScript)
+    │   │   ├── claude-project-skills.ts # Expose .claude/skills to pi
+    │   │   └── gpt-usage.ts             # ChatGPT usage in the pi footer
+    │   └── skills/
+    │       └── browser/SKILL.md         # Playwright CLI browser automation
+    ├── herdr/
+    │   └── wq                           # herdr workspace orchestration script
     ├── com.mitchellh.ghostty/
     │   └── config.ghostty               # Ghostty terminal config
     ├── git/
@@ -80,6 +98,8 @@ devcage-macos/
     │   ├── vimrc                        # Vim config (vim-plug, coc.nvim, airline)
     │   ├── colors/                      # Custom color schemes
     │   └── ftplugin/                    # Filetype-specific settings
+    ├── zed/
+    │   └── settings.json                # Zed editor config
     └── zsh/
         ├── .zshenv                      # Sets ZDOTDIR, sources Cargo env
         └── .zshrc                       # Shell config, aliases, history, plugins
@@ -97,8 +117,19 @@ devcage-macos/
 | `~/.config/vim` | `config/vim/` |
 | `~/.config/starship` | `config/starship/` |
 | `~/Library/Application Support/com.mitchellh.ghostty/config.ghostty` | `config/com.mitchellh.ghostty/config.ghostty` |
+| `~/.config/zed/settings.json` | `config/zed/settings.json` |
+| `~/.claude/CLAUDE.md` | `config/.claude/.CLAUDE.md` |
+| `~/.claude/settings.json` | `config/.claude/settings.json` |
+| `~/.claude/agents` | `config/.claude/agents/` |
+| `~/bin/wq` | `config/herdr/wq` |
+| `~/.pi/agent/prompts/go.md` | `config/.pi/prompts/go.md` |
+| `~/.pi/agent/extensions/*.ts` | `config/.pi/extensions/*.ts` |
+| `~/.pi/agent/skills/<skill>/` | `config/.pi/skills/<skill>/` |
 
 Zsh uses XDG-style config via `ZDOTDIR=$HOME/.config/zsh` (set in `~/.zshenv`).
+
+`~/.pi/agent/settings.json` is deliberately not tracked — pi rewrites it on upgrade,
+so linking it would produce spurious diffs.
 
 ## SSH Key
 
