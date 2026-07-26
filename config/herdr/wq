@@ -131,40 +131,131 @@ agent_ready() {  # pane
   die "agent in pane $1 never became ready for input"
 }
 
-# Fire and forget: chat, ask, and brainstorm want the answer to arrive in the
-# tab, not to block this script. herdr still reports failures as JSON on stdout
-# while exiting 0, so inspect the payload instead of discarding it — that is what
-# hid the dropped brainstorm prompt.
-send() {  # pane text
-  local out
-  agent_ready "$1"
-  out="$(herdr agent prompt "$1" "$2" 2>&1 || true)"
-  case "$out" in
-    *'"error"'*)
-      printf '%s\n' "$out" >&2
-      die "prompt failed for pane $1"
-      ;;
-  esac
+agent_state() {  # pane -> "<status> <state_change_seq>"
+  local s
+  s="$(herdr agent list 2>/dev/null | jq -r --arg p "$1" \
+    '.result.agents[]? | select(.pane_id==$p)
+     | "\(.agent_status // "unknown") \(.state_change_seq // 0)"' 2>/dev/null || true)"
+  printf '%s' "${s:-unknown 0}"
 }
 
-# Send a prompt and block until the agent finishes. Terminal state settles on
-# `done`, not `idle` — waiting on idle times out even though the reply landed.
-# `blocked` means the agent is sitting on a question, so surface that as itself
-# rather than letting it fall through as a mysteriously missing output file.
+# Claude Code asks "Is this a project you created or one you trust?" the first
+# time it runs in a directory — which is every pane wq starts, since the scratch
+# dir and the build worktree are both new. herdr reads readiness off the prompt
+# box, and the dialog's option list draws one, so the pane reports ready while
+# the only input it accepts is an answer. A prompt sent into that dialog is
+# swallowed whole and its Enter confirms the highlighted option.
+#
+# Answer it here instead. Every directory wq starts an agent in is one it just
+# created or one the caller named on the command line, so the answer is yes.
+TRUST_DIALOG='Yes, I trust this folder'
+
+settle() {  # pane
+  local i screen
+  for i in $(seq 1 20); do
+    screen="$(herdr agent read "$1" --source visible --lines 40 2>/dev/null || true)"
+    case "$screen" in
+      *"$TRUST_DIALOG"*)
+        herdr agent send-keys "$1" enter >/dev/null 2>&1 || true
+        sleep 1
+        ;;
+      *) return 0 ;;
+    esac
+  done
+  die "pane $1 is still asking whether to trust its directory; attach with: herdr agent attach $1"
+}
+
+# `herdr agent prompt` reports whether herdr accepted the request, not whether
+# the agent took the text: a TUI mid-startup or sitting on a dialog drops it
+# without a trace. Claude Code keeps drawing a composer for tens of seconds
+# after it answers the trust dialog while still discarding everything typed into
+# it, and nothing in its status, title, or screen distinguishes that pane from a
+# working one — so delivery has to be confirmed, not predicted.
+#
+# state_change_seq is the receipt: an agent that took a prompt leaves idle.
+# Nothing moved after ten seconds means nothing was delivered, so clear whatever
+# is in the composer and try again.
+PROMPT_ATTEMPTS="${WQ_PROMPT_ATTEMPTS:-5}"
+
+deliver() {  # pane text
+  local pane="$1" text="$2" attempt i out was was_st now
+  agent_ready "$pane"
+  for attempt in $(seq 1 "$PROMPT_ATTEMPTS"); do
+    settle "$pane"
+
+    was="$(agent_state "$pane")"; was_st="${was%% *}"; was="${was##* }"
+    out="$(herdr agent prompt "$pane" "$text" 2>&1 || true)"
+    case "$out" in
+      *'"error"'*)
+        printf '%s\n' "$out" >&2
+        die "prompt rejected for pane $pane"
+        ;;
+    esac
+
+    for i in $(seq 1 10); do
+      now="$(agent_state "$pane")"
+      [ "${now##* }" != "$was" ] && return 0
+      sleep 1
+    done
+
+    # A turn that starts late looks exactly like a dropped prompt until the last
+    # read, which may land after the poll gave up. Compare the status against the
+    # one this attempt started from, not against a fixed list: a warm pane sits
+    # in `done` from its previous turn, so `done` here proves nothing.
+    now="$(agent_state "$pane")"
+    [ "${now%% *}" != "$was_st" ] && return 0
+
+    log "pane $pane did not take the prompt — clearing and retrying ($attempt/$PROMPT_ATTEMPTS)"
+    herdr agent send-keys "$pane" esc >/dev/null 2>&1 || true
+    sleep 1
+  done
+  die "pane $pane never took the prompt; attach with: herdr agent attach $pane"
+}
+
+# Fire and forget: chat, ask, and brainstorm want the answer to arrive in the
+# tab, not to block this script. Delivery is still confirmed — a dropped prompt
+# in a tab you are not watching is exactly the failure that hides.
+send() { deliver "$1" "$2"; }
+
+# Wait for a turn to end. `done` is the state a finished turn lands in, but it
+# does not stay there — a pane that has been read settles back to `idle`, and
+# waiting on `done` alone then hangs for the full turn timeout on work that
+# finished minutes ago. Idle is only ambiguous before the agent picks the prompt
+# up, and deliver() has already proved it did, so idle here means finished.
+# Confirm it holds, because a pane can flash idle between steps of a turn.
+wait_settled() {  # pane -> status
+  local pane="$1" out st deadline
+  deadline=$(( $(date +%s) + TURN_TIMEOUT_MS / 1000 ))
+  while :; do
+    out="$(herdr agent wait "$pane" --until done --until blocked --until idle \
+      --timeout "$TURN_TIMEOUT_MS" 2>&1 || true)"
+    case "$out" in
+      *'"error"'*)
+        printf '%s\n' "$out" >&2
+        die "waiting on pane $pane failed"
+        ;;
+    esac
+
+    st="$(printf '%s' "$out" | jq -r '.result.agent.agent_status // "unknown"' 2>/dev/null || echo unknown)"
+    [ "$st" = "idle" ] || { printf '%s' "$st"; return 0; }
+
+    sleep 3
+    st="$(agent_state "$pane")"; st="${st%% *}"
+    case "$st" in
+      idle|done|blocked) printf '%s' "$st"; return 0 ;;
+    esac
+    [ "$(date +%s)" -lt "$deadline" ] \
+      || die "pane $pane never finished its turn; attach with: herdr agent attach $pane"
+  done
+}
+
+# Send a prompt and block until the agent finishes. `blocked` means the agent is
+# sitting on a question, so surface that as itself rather than letting it fall
+# through as a mysteriously missing output file.
 ask() {  # pane text
-  local out st
-  agent_ready "$1"
-  out="$(herdr agent prompt "$1" "$2" --wait --until done --until blocked \
-    --timeout "$TURN_TIMEOUT_MS" 2>&1 || true)"
-
-  case "$out" in
-    *'"error"'*)
-      printf '%s\n' "$out" >&2
-      die "prompt failed for pane $1"
-      ;;
-  esac
-
-  st="$(printf '%s' "$out" | jq -r '.result.agent.agent_status // "unknown"' 2>/dev/null || echo unknown)"
+  local st
+  deliver "$1" "$2"
+  st="$(wait_settled "$1")"
   if [ "$st" = "blocked" ]; then
     printf '\n--- pane %s ---\n%s\n\n' "$1" \
       "$(herdr agent read "$1" --source visible --lines 25 2>/dev/null || true)" >&2

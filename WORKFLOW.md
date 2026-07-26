@@ -72,13 +72,19 @@ herdr integration install pi
 herdr integration install claude
 ```
 
-Without them herdr infers agent state by watching terminal output, which is what
-`wq`'s prompt-and-wait depends on. With them, Pi and Claude report their own
-state, and panes resume across server restarts. The Claude one adds a
-`SessionStart` hook to `~/.claude/settings.json` — that file is symlinked out of
-this repo, so the hook is tracked here. It runs for every Claude Code session on
-this machine, not only for `wq` panes. `herdr integration uninstall claude`
-reverses it.
+They report agent session identity, which is what lets panes resume across
+server restarts. What they do not do — for Claude, at least — is report agent
+*state*: the installed hook only sends `pane.report_agent_session`, so `idle`,
+`working`, and `blocked` are still inferred by matching patterns from herdr's
+detection manifest against the terminal. `herdr agent explain <pane>` prints the
+rule that produced the current state. That inference is what `wq`'s
+prompt-and-wait depends on, and where it is wrong is where `wq` has to be
+careful — see the herdr notes below. Pi reports its own state directly.
+
+The Claude integration adds a `SessionStart` hook to `~/.claude/settings.json` —
+that file is symlinked out of this repo, so the hook is tracked here. It runs for
+every Claude Code session on this machine, not only for `wq` panes.
+`herdr integration uninstall claude` reverses it.
 
 ## The five classes
 
@@ -274,6 +280,15 @@ If an agent does block, `wq` prints the last 25 lines of the pane and exits
 rather than reporting a confusingly empty output file. Attach with
 `herdr agent attach <pane>` to see what it is asking.
 
+This works: a Claude planner that stopped to ask which language to scaffold was
+reported as `blocked`, and `wq` printed the question and exited 1. Do not assume
+it is airtight, though. Claude's `idle` rule (a drawn prompt box, priority 950)
+outranks its `blocked` rules for option lists (840–850), and the trust dialog is
+a case where a question satisfies the prompt-box rule and reads as `idle`. A
+question that goes undetected that way is caught one step later by the mtime
+check, as "file was not updated this round" — the run still stops, the message
+just points at the symptom rather than the question on screen.
+
 ## Starting the server cleanly
 
 `wq` needs a running herdr server. Start it the normal way — `herdr` in a fresh
@@ -292,14 +307,32 @@ Behaviour confirmed against herdr 0.7.5, worth knowing if you extend `wq`:
   subcommands; elsewhere it is rejected as an unknown option.
 - `workspace create` returns the root pane too, so a simple workspace needs no
   `tab create`.
-- **Agent turns settle on `done`, not `idle`.** `--until idle` times out even
-  though the reply landed. `wq` waits on `done` and `blocked`.
+- **A finished turn lands in `done`, but it does not stay there.** Once the pane
+  has been read it settles back to `idle`, so waiting on `done` alone hangs for
+  the full turn timeout on work that finished minutes ago — seen with a Pi
+  reviewer whose review file was already on disk. Waiting on `idle` is only
+  ambiguous before the agent picks the prompt up, which confirmed delivery
+  already rules out, so `wq` waits on `done`, `blocked`, and `idle`, then
+  re-checks after three seconds in case the pane merely flashed idle mid-turn.
 - Target agents by `pane_id`, not by name. Names are not unique across concurrent
   workspaces; pane IDs are.
-- **`agent start` returning does not mean the agent accepts input.** The process
-  is launched, but its TUI is still booting. A prompt sent into that gap is
-  dropped silently — the pane just sits at an empty composer. Wait for
-  `interactive_ready` on the agent before every prompt.
+- **Neither `agent start` returning nor `interactive_ready` means the agent
+  accepts input.** Readiness is read off the screen — the detection manifest
+  matches the prompt box — so it flips as soon as a composer is drawn, which
+  happens well before Claude Code will take anything typed into it. A prompt sent
+  into that gap is dropped silently: no error, no text in the composer, no state
+  change. Measured on a fresh Claude pane: ready at 4.1s, prompts still being
+  discarded at 23s, accepted instantly a moment later. Nothing in the status,
+  the terminal title, or the screen distinguishes the two. **Delivery has to be
+  confirmed, not predicted** — `wq` records `state_change_seq` before prompting,
+  waits ten seconds for it to move, and re-sends if it did not.
+- **Claude Code's trust dialog looks exactly like readiness.** The first run in
+  any directory asks "Is this a project you created or one you trust?", and the
+  `❯` in that dialog's option list satisfies the readiness rule. Prompt into it
+  and the text is swallowed as dialog input while its Enter confirms the
+  highlighted option. Every `wq` Claude pane hits this, because the plan scratch
+  dir and the build worktree are both new directories. `wq` answers the dialog
+  itself before prompting.
 - **Agent names are global, not per-workspace**, and must match `[a-z0-9_-]{1,32}`.
   Two concurrent workspaces each starting a `review` pane collide with
   `agent_name_taken`, so `wq` registers `<role>-<pane-id>` and renames the pane
@@ -329,13 +362,19 @@ Verified individually: workspace/tab/pane/agent creation, tab rename,
 prompt-and-wait, pane reads, workspace and tab close, and every JSON shape `wq`
 parses.
 
-The `interactive_ready` and agent-name fixes touched `agent_start` (every role
-start), `ask()` (every `plan`/`build` turn), and added `send()`. Re-verified
-since: `wq brainstorm` (claude, prompt lands in the pane) and `wq ask` (pi, turn
-reaches `done`) — both agent kinds, and two `idea` panes running concurrently.
-`wq plan`, `wq build`, and `wq go` have **not** been re-run since that change.
+`wq plan` has since been run end to end on throwaway requests, including a full
+two-round loop: fresh Claude planner pane (trust dialog answered, first prompt
+dropped, re-sent and taken), plan written, Pi reviewer pane, review written with
+a verdict, plan revised, reviewed again, round limit honoured, exit 0. Both
+agent kinds, both loop halves, warm panes taking every prompt first try.
 
-Not yet run end to end: the `plan` review loop, `build`, and `go`. Give `plan` a
-small throwaway request first and watch the panes before trusting it with
-anything real — and read a `build` diff carefully the first few times, since
-`go` is the step that pushes and merges.
+Every prompt now goes through `deliver()`, so `brainstorm`, `chat`, and `ask`
+inherit the same confirmation; a dropped prompt in a tab you are not watching
+was previously silent. Re-verified since: `wq ask` against a Claude pane in a
+new directory (dialog answered, one retry, answer landed exactly once — a retry
+does not double-send) and `wq chat` cold then warm on the same tab, which is the
+case where the pane starts the turn in `done`. `wq brainstorm` has not been
+re-run, but it uses the same primitive.
+
+Not yet run end to end: `build` and `go`. Read a `build` diff carefully the first
+few times, since `go` is the step that pushes and merges.
