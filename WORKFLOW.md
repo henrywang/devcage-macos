@@ -296,6 +296,16 @@ Behaviour confirmed against herdr 0.7.5, worth knowing if you extend `wq`:
   though the reply landed. `wq` waits on `done` and `blocked`.
 - Target agents by `pane_id`, not by name. Names are not unique across concurrent
   workspaces; pane IDs are.
+- **`agent start` returning does not mean the agent accepts input.** The process
+  is launched, but its TUI is still booting. A prompt sent into that gap is
+  dropped silently — the pane just sits at an empty composer. Wait for
+  `interactive_ready` on the agent before every prompt.
+- **Agent names are global, not per-workspace**, and must match `[a-z0-9_-]{1,32}`.
+  Two concurrent workspaces each starting a `review` pane collide with
+  `agent_name_taken`, so `wq` registers `<role>-<pane-id>` and renames the pane
+  back to the short role name for display.
+- `agent prompt` reports failures as JSON on stdout while still exiting 0.
+  Redirecting stdout to `/dev/null` discards the error along with it.
 - Valid `agent read --source` values: `visible`, `recent`, `recent_unwrapped`,
   `detection`. Not `screen`.
 - Agent status enum: `idle`, `working`, `blocked`, `done`, `unknown`.
@@ -318,6 +328,12 @@ persistence confirmed across a full server stop and restart.
 Verified individually: workspace/tab/pane/agent creation, tab rename,
 prompt-and-wait, pane reads, workspace and tab close, and every JSON shape `wq`
 parses.
+
+The `interactive_ready` and agent-name fixes touched `agent_start` (every role
+start), `ask()` (every `plan`/`build` turn), and added `send()`. Re-verified
+since: `wq brainstorm` (claude, prompt lands in the pane) and `wq ask` (pi, turn
+reaches `done`) — both agent kinds, and two `idea` panes running concurrently.
+`wq plan`, `wq build`, and `wq go` have **not** been re-run since that change.
 
 Not yet run end to end: the `plan` review loop, `build`, and `go`. Give `plan` a
 small throwaway request first and watch the panes before trusting it with

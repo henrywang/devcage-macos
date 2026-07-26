@@ -71,9 +71,16 @@ pane_split() {  # parent_pane cwd -> pane_id
 # agent in it fails with agent_pane_busy. The gap is short but real, so retry.
 agent_start() {  # pane kind name -- args...
   local pane="$1" kind="$2" name="$3"; shift 3
+  # Agent names are global in herdr, so a second concurrent workspace starting
+  # its own `idea` or `review` pane fails with agent_name_taken. Register under a
+  # name qualified by the pane id, which is unique by construction, and keep the
+  # short name for the pane label. Nothing here looks agents up by name.
+  # herdr rejects anything outside [a-z0-9_-], so fold the pane id's case.
+  local agent_name
+  agent_name="$name-$(printf '%s' "${pane//:/-}" | tr 'A-Z' 'a-z')"
   local i out
   for i in $(seq 1 15); do
-    out="$(herdr agent start "$name" --kind "$kind" --pane "$pane" -- "$@" 2>&1 || true)"
+    out="$(herdr agent start "$agent_name" --kind "$kind" --pane "$pane" -- "$@" 2>&1 || true)"
     case "$out" in
       *'"error"'*)
         case "$out" in
@@ -110,12 +117,43 @@ start_role() {  # pane spec name
   esac
 }
 
+# `agent start` returns once the process is launched, not once its TUI accepts
+# input. A prompt sent into that gap is dropped — the agent just sits at an empty
+# composer — so wait for herdr to report `interactive_ready` before every prompt.
+agent_ready() {  # pane
+  local i ready
+  for i in $(seq 1 60); do
+    ready="$(herdr agent list 2>/dev/null | jq -r --arg p "$1" \
+      '.result.agents[]? | select(.pane_id==$p) | .interactive_ready' 2>/dev/null || true)"
+    [ "$ready" = "true" ] && return 0
+    sleep 1
+  done
+  die "agent in pane $1 never became ready for input"
+}
+
+# Fire and forget: chat, ask, and brainstorm want the answer to arrive in the
+# tab, not to block this script. herdr still reports failures as JSON on stdout
+# while exiting 0, so inspect the payload instead of discarding it — that is what
+# hid the dropped brainstorm prompt.
+send() {  # pane text
+  local out
+  agent_ready "$1"
+  out="$(herdr agent prompt "$1" "$2" 2>&1 || true)"
+  case "$out" in
+    *'"error"'*)
+      printf '%s\n' "$out" >&2
+      die "prompt failed for pane $1"
+      ;;
+  esac
+}
+
 # Send a prompt and block until the agent finishes. Terminal state settles on
 # `done`, not `idle` — waiting on idle times out even though the reply landed.
 # `blocked` means the agent is sitting on a question, so surface that as itself
 # rather than letting it fall through as a mysteriously missing output file.
 ask() {  # pane text
   local out st
+  agent_ready "$1"
   out="$(herdr agent prompt "$1" "$2" --wait --until done --until blocked \
     --timeout "$TURN_TIMEOUT_MS" 2>&1 || true)"
 
@@ -223,7 +261,7 @@ cmd_chat() {
     start_role "$pane" "$AGENT_ASK" chat
   fi
 
-  herdr agent prompt "$pane" "$msg" >/dev/null
+  send "$pane" "$msg"
   herdr pane focus "$pane" >/dev/null 2>&1 || herdr workspace focus "$ws" >/dev/null 2>&1 || true
 }
 
@@ -237,7 +275,7 @@ cmd_ask() {
   local pane; pane="$(tab_create "$ws" "$label" "${WQ_ASK_CWD:-$PWD}")"
   start_role "$pane" "$AGENT_ASK" "$label"
 
-  herdr agent prompt "$pane" "$q" >/dev/null
+  send "$pane" "$q"
   herdr pane focus "$pane" >/dev/null 2>&1 || herdr workspace focus "$ws" >/dev/null 2>&1 || true
   log "tab $label — close it with: wq tidy"
 }
@@ -292,9 +330,9 @@ EOF
 
   # Interactive by design: brainstorming is worth staying in the room for, and a
   # critic pane at this stage kills the divergence you came for.
-  herdr agent prompt "$pane" "We are brainstorming. Keep the running note at $note current as we talk: structure it, keep the good branches, prune the dead ones, and record open questions. Do not ask permission before each edit. Preserve the YAML frontmatter. Start by expanding on this idea and offering three angles I have not considered:
+  send "$pane" "We are brainstorming. Keep the running note at $note current as we talk: structure it, keep the good branches, prune the dead ones, and record open questions. Do not ask permission before each edit. Preserve the YAML frontmatter. Start by expanding on this idea and offering three angles I have not considered:
 
-$idea" >/dev/null
+$idea"
 
   herdr workspace focus "${ids%% *}" >/dev/null 2>&1 || true
   log "brainstorm pane ready — note: $note"
