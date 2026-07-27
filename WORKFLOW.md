@@ -126,6 +126,19 @@ like everything else, so you never leave the inbox:
 /go push and send the PR              → ship
 ```
 
+**How the router knows which build you mean.** `revise` and `ship` act on a build
+that already exists, so the slug has to be resolved rather than invented. `wq list`
+splits its output into `live:` — builds with panes still open, the only ones that
+can be revised — and `scratch:`, and marks one live build with `*`: the one whose
+`diff.patch` is newest, which is the one you were last working on. `build` and
+every `revise` rewrite that file, so the marker is read back out of state that had
+to exist anyway rather than tracked in an index.
+
+Name the build if you want to be sure — `/go dark-mode: the toggle should persist`.
+Otherwise `revise` takes the starred one and says which it picked; a wrong guess
+costs one more revise. **`ship` never defaults** — with more than one build live it
+asks, because merging the wrong branch into main is not cheap to undo.
+
 ## Commands
 
 ```bash
@@ -139,7 +152,7 @@ wq build      <slug> [repo]       # → worktree + committed diff
 wq revise     <slug> "<comment>"  # one more code + review round on that build
 wq ship       <slug>              # run `wq go` in an inbox shell tab
 wq go         <slug>              # push, PR, wait for CI, merge, clean up
-wq list                           # what is running
+wq list                           # what is running (* = last worked on)
 wq clean      <slug>              # drop the workspace and scratch dir
 ```
 

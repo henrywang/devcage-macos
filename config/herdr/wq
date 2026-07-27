@@ -726,13 +726,44 @@ cmd_list() {
   builds="$(cd "$WQ_ROOT" 2>/dev/null && ls -1d -- */build.env 2>/dev/null \
     | sed 's|/build.env$||' || true)"
 
-  printf 'live:\n'
-  herdr api snapshot | jq -r --arg builds "$builds" '
+  local rows
+  rows="$(herdr api snapshot | jq -r --arg builds "$builds" '
     ($builds | split("\n") | map(select(length > 0))) as $b
     | .result.snapshot.workspaces[]
     | . as $w
     | select(($w.label | test("^(bs|plan)-")) or (($b | index($w.label)) != null))
-    | "  \($w.workspace_id)\t\($w.label)\t\($w.agent_status)"'
+    | "\($w.workspace_id)\t\($w.label)\t\($w.agent_status)"')"
+
+  # `build` and every `revise` rewrite diff.patch, so its mtime already records
+  # which build was worked on last. Marking it lets the router revise the
+  # obvious one without asking, and there is no index to keep in sync — the
+  # answer is read back out of state that had to exist anyway.
+  #
+  # Picked from the rows rather than from the scratch dirs: a build that has
+  # been shipped has a newer diff.patch than anything still open, and no panes
+  # left to revise.
+  local current="" newest=0 id label st t
+  while IFS=$'\t' read -r id label st; do
+    [ -n "$label" ] || continue
+    case $'\n'"$builds"$'\n' in *$'\n'"$label"$'\n'*) ;; *) continue ;; esac
+    t="$(mtime "$WQ_ROOT/$label/diff.patch")"
+    if [ "$t" -gt "$newest" ]; then newest="$t"; current="$label"; fi
+  done <<EOF
+$rows
+EOF
+
+  printf 'live:\n'
+  while IFS=$'\t' read -r id label st; do
+    [ -n "$label" ] || continue
+    if [ "$label" = "$current" ]; then
+      printf '  * %s\t%s\t%s\n' "$id" "$label" "$st"
+    else
+      printf '    %s\t%s\t%s\n' "$id" "$label" "$st"
+    fi
+  done <<EOF
+$rows
+EOF
+  if [ -n "$current" ]; then printf '\n  * = most recently worked on\n'; fi
 
   printf '\nscratch (%s):\n' "$WQ_ROOT"
   ls -1 "$WQ_ROOT" 2>/dev/null | sed 's/^/  /' || true
