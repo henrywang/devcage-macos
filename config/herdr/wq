@@ -11,6 +11,8 @@
 #   wq brainstorm <slug> "<idea>"        interactive; note lands in Obsidian
 #   wq plan       <slug> "<request>"     plan <-> review loop -> plan.md
 #   wq build      <slug> [repo]          worktree, code <-> review loop, commit
+#   wq revise     <slug> "<comment>"     one more code + review round on a build
+#   wq ship       <slug>                 run `wq go` in an inbox shell tab
 #   wq go         <slug>                 push, PR, wait for CI, merge, clean up
 #   wq list                              show active wq workspaces
 #   wq clean      <slug>                 drop the workspace and scratch dir
@@ -543,7 +545,125 @@ cmd_build() {
   notify "wq build: $slug" "Diff ready for your review"
   log "worktree: $wt_path"
   log "diff:     $diff"
-  log "next:     wq go $slug"
+  log "next:     wq revise $slug \"...\"  |  wq ship $slug"
+}
+
+# --- revise ----------------------------------------------------------------
+# One more round of the build loop, driven by you instead of by the reviewer.
+# `build` runs its own bounded loop and stops; from there you are the round
+# counter, so this does exactly one code turn and one review turn and hands
+# back. It deliberately does not auto-fix what the reviewer raises on its own:
+# by this point the reviewer has already had its rounds, so a new finding is
+# either something your comment caused or something it previously let pass —
+# both worth your eyes, not an automatic rewrite of a diff you had approved.
+
+# Build panes are found by label, not by stored ids: `agent_start` renames each
+# pane to its short role name, and the workspace carries the slug, so the
+# snapshot already knows where they are. Nothing to persist, nothing to drift.
+ws_pane() {  # workspace_label pane_label -> pane_id (empty if absent)
+  herdr api snapshot | jq -r --arg w "$1" --arg p "$2" '
+    .result.snapshot as $s
+    | ($s.workspaces[] | select(.label==$w) | .workspace_id) as $ws
+    | $s.panes[] | select(.workspace_id==$ws and .label==$p) | .pane_id' 2>/dev/null | head -1
+}
+
+cmd_revise() {
+  local slug="${1:?usage: wq revise <slug> \"<comment>\"}"; shift
+  local comment="$*"; [ -n "$comment" ] || die "describe the change you want"
+
+  local dir; dir="$(slug_dir "$slug")"
+  [ -s "$dir/build.env" ] || die "no build for $slug — run: wq build $slug <repo>"
+  local plan="$dir/plan.md" review="$dir/code-review.md"
+  local diff="$dir/diff.patch" delta="$dir/revise.patch"
+
+  local repo branch wt_path
+  { read -r repo; read -r branch; read -r wt_path; } < "$dir/build.env"
+  [ -d "$wt_path" ] || die "worktree $wt_path is gone — $slug has already been shipped or cleaned"
+
+  local p_code p_rev
+  p_code="$(ws_pane "$slug" code)"
+  p_rev="$(ws_pane "$slug" review)"
+  [ -n "$p_code" ] && [ -n "$p_rev" ] \
+    || die "no live build panes for $slug — the workspace was closed; re-run: wq build $slug $repo"
+
+  # Two revises landing in the same panes interleave prompts and lose one of
+  # them silently. A pane mid-turn is not idle, so this is cheap to rule out.
+  # `unknown` means the agent is gone, which deliver() would only discover after
+  # burning every retry on a pane that cannot answer.
+  local pane st
+  for pane in "$p_code" "$p_rev"; do
+    st="$(agent_state "$pane")"; st="${st%% *}"
+    case "$st" in
+      working|blocked) die "a turn is still in flight for $slug — wait for it to finish" ;;
+      unknown)         die "the agent in pane $pane is gone — re-run: wq build $slug $repo" ;;
+    esac
+  done
+
+  local base; base="$(git -C "$wt_path" rev-parse HEAD)"
+
+  log "revising"
+  ask "$p_code" "Change request: $comment
+
+Make that change in this worktree, following the repository's own conventions. Run the tests. Commit. Do not push and do not open a pull request."
+
+  git -C "$wt_path" diff origin/main...HEAD > "$diff"
+  git -C "$wt_path" diff "$base"..HEAD > "$delta"
+  [ -s "$delta" ] || die "nothing new committed on $branch — the code pane changed nothing this round"
+
+  log "reviewing the change"
+  local t; t="$(mtime "$review")"
+  # Scope the reviewer by instruction, not by withholding the rest of the diff.
+  # A delta-only reviewer is structurally blind to the call site the delta
+  # forgot to update — the regression lives outside the hunk that caused it.
+  ask "$p_rev" "Review $delta — the change just made in response to: \"$comment\". $diff is the full change for context and $plan is the plan. Judge the delta. Raise findings outside it only where the delta caused them. Write your review to $review. $REVIEW_PROTOCOL"
+  expect_file "$review" "$t" "reviewer"
+
+  if approved "$review"; then
+    notify "wq revise: $slug" "Change approved"
+    log "approved"
+  else
+    notify "wq revise: $slug" "Reviewer has findings"
+    log "reviewer has findings — revise again, or ship anyway once you have read them"
+  fi
+  log "delta:  $delta"
+  log "diff:   $diff"
+  log "review: $review"
+  log "next:   wq revise $slug \"...\"  |  wq ship $slug"
+}
+
+# --- ship ------------------------------------------------------------------
+# `wq go` cannot run just anywhere. Its cleanup closes the workspace labelled
+# with the slug, which is the one the build panes live in, so running it from
+# the code pane deletes the pane mid-command. It also blocks for the length of
+# CI, which rules out the router — the one pane that has to stay responsive —
+# and any agent pane, whose bash tool times out long before a slow CI run ends.
+#
+# So it runs where a long blocking command belongs: a plain shell tab in the
+# inbox with no agent in it at all. `herdr pane run` types the command and
+# returns immediately, so the caller — usually the router — is free straight
+# away and you watch the push, the CI, and the merge in the tab.
+cmd_ship() {
+  local slug="${1:?usage: wq ship <slug>}"
+  local dir; dir="$(slug_dir "$slug")"
+  [ -s "$dir/build.env" ] || die "no build for $slug — run: wq build $slug <repo>"
+
+  local ws; ws="$(inbox_ws)"
+  local label="ship-$slug"
+  local pane; pane="$(tab_pane_by_label "$ws" "$label")"
+  [ -n "$pane" ] || pane="$(tab_create "$ws" "$label" "$HOME")"
+
+  # `pane run` reports failures as JSON on stdout while still exiting 0, so the
+  # output has to be read rather than the exit status trusted.
+  local out; out="$(herdr pane run "$pane" "$0" go "$slug" 2>&1 || true)"
+  case "$out" in
+    *'"error"'*)
+      printf '%s\n' "$out" >&2
+      die "could not start the ship tab — run it by hand: wq go $slug"
+      ;;
+  esac
+
+  herdr pane focus "$pane" >/dev/null 2>&1 || herdr workspace focus "$ws" >/dev/null 2>&1 || true
+  log "shipping $slug in tab $label — push, PR, CI and merge run there"
 }
 
 # --- go: push, PR, CI, merge, clean up -------------------------------------
@@ -593,12 +713,29 @@ cmd_go() {
 }
 
 # --- housekeeping ----------------------------------------------------------
+# `bs-` and `plan-` workspaces announce themselves by label. A build workspace
+# is labelled with the bare slug, which is indistinguishable from a workspace
+# you opened by hand — so it counts as one of wq's only when a scratch dir with
+# a build.env backs it. The filesystem is the index, as everywhere else here.
+#
+# The two sections mean different things and the router relies on the
+# difference: a slug in `live` can be revised, a slug that appears only under
+# `scratch` has no panes left and has to be rebuilt.
 cmd_list() {
-  herdr api snapshot | jq -r '.result.snapshot.workspaces[]
-    | select(.label | test("^(bs|plan)-") or (. as $l | false))
-    | "\(.workspace_id)\t\(.label)\t\(.agent_status)"'
-  printf '\nscratch: %s\n' "$WQ_ROOT"
-  ls -1 "$WQ_ROOT" 2>/dev/null || true
+  local builds
+  builds="$(cd "$WQ_ROOT" 2>/dev/null && ls -1d -- */build.env 2>/dev/null \
+    | sed 's|/build.env$||' || true)"
+
+  printf 'live:\n'
+  herdr api snapshot | jq -r --arg builds "$builds" '
+    ($builds | split("\n") | map(select(length > 0))) as $b
+    | .result.snapshot.workspaces[]
+    | . as $w
+    | select(($w.label | test("^(bs|plan)-")) or (($b | index($w.label)) != null))
+    | "  \($w.workspace_id)\t\($w.label)\t\($w.agent_status)"'
+
+  printf '\nscratch (%s):\n' "$WQ_ROOT"
+  ls -1 "$WQ_ROOT" 2>/dev/null | sed 's/^/  /' || true
 }
 
 cmd_clean() {
@@ -609,6 +746,13 @@ cmd_clean() {
       '.result.snapshot.workspaces[] | select(.label==$l) | .workspace_id' | head -1)"
     [ -n "$id" ] && herdr workspace close "$id" >/dev/null 2>&1 || true
   done
+
+  # The ship tab is a tab in the inbox, not a workspace of its own, so the loop
+  # above never sees it.
+  local ship; ship="$(herdr api snapshot | jq -r --arg l "ship-$slug" \
+    '.result.snapshot.tabs[] | select(.label==$l) | .tab_id' | head -1)"
+  [ -n "$ship" ] && herdr tab close "$ship" >/dev/null 2>&1 || true
+
   rm -rf "$(slug_dir "$slug")"
   log "cleaned $slug"
 }
@@ -624,9 +768,13 @@ case "$cmd" in
   brainstorm|bs) cmd_brainstorm "$@" ;;
   plan)          cmd_plan "$@" ;;
   build)         cmd_build "$@" ;;
+  revise|rev)    cmd_revise "$@" ;;
+  ship)          cmd_ship "$@" ;;
   go)            cmd_go "$@" ;;
   list|ls)       cmd_list "$@" ;;
   clean|rm)      cmd_clean "$@" ;;
-  ""|-h|--help)  sed -n '3,13p' "$0" | sed 's/^# \{0,1\}//' ;;
+  # Match the usage block rather than fixed line numbers, so adding a command
+  # cannot silently drop the last line of --help.
+  ""|-h|--help)  sed -n '/^#   wq /s/^# \{0,1\}//p' "$0" ;;
   *)             die "unknown command: $cmd (try: wq --help)" ;;
 esac

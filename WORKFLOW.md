@@ -86,7 +86,7 @@ that file is symlinked out of this repo, so the hook is tracked here. It runs fo
 every Claude Code session on this machine, not only for `wq` panes.
 `herdr integration uninstall claude` reverses it.
 
-## The five classes
+## The seven classes
 
 | Class | Mode | What happens |
 | --- | --- | --- |
@@ -95,6 +95,8 @@ every Claude Code session on this machine, not only for `wq` panes.
 | `brainstorm` | **interactive** | One Claude opus pane → Obsidian note |
 | `plan` | autonomous | plan ↔ review loop → `plan.md` |
 | `build` | autonomous | worktree → code ↔ review loop → commit |
+| `revise` | autonomous | one more code + review round on an existing build |
+| `ship` | tab, instant | inbox shell tab running `wq go` |
 
 **The router never answers anything.** It classifies and dispatches, and that is
 the whole point: its context stays flat no matter how many questions you ask.
@@ -108,9 +110,21 @@ previous turn still in context. `ask` gets a fresh tab per question, because the
 file reads behind an answer are exactly what you want to discard. `wq tidy`
 closes the finished `ask-*` tabs and leaves `chat` alone.
 
-Interactive vs autonomous is the other split. `chat`, `ask`, and `brainstorm`
-return immediately and focus the tab — you read the answer as it arrives.
-`plan` and `build` block for minutes, then notify.
+Interactive vs autonomous is the other split. `chat`, `ask`, `brainstorm`, and
+`ship` return immediately and focus the tab — you read the answer, or watch the
+merge, as it arrives. `plan`, `build`, and `revise` block for minutes, then
+notify.
+
+The loop you actually live in is `build` → read `diff.patch` → `revise` as many
+times as it takes → `ship`. Everything after `build` goes through the router
+like everything else, so you never leave the inbox:
+
+```
+/go add dark mode to Berthly          → plan, then build
+/go the toggle should persist         → revise
+/go the empty state still looks wrong → revise
+/go push and send the PR              → ship
+```
 
 ## Commands
 
@@ -122,6 +136,8 @@ wq tidy                           # close finished ask tabs
 wq brainstorm <slug> "<idea>"     # interactive pane, note in Obsidian
 wq plan       <slug> "<request>"  # → ~/Workspace/.wq/<slug>/plan.md
 wq build      <slug> [repo]       # → worktree + committed diff
+wq revise     <slug> "<comment>"  # one more code + review round on that build
+wq ship       <slug>              # run `wq go` in an inbox shell tab
 wq go         <slug>              # push, PR, wait for CI, merge, clean up
 wq list                           # what is running
 wq clean      <slug>              # drop the workspace and scratch dir
@@ -170,16 +186,67 @@ worktree wq/<slug> off origin/main
   → stops. You review the diff.
 ```
 
-Then `wq go <slug>` pushes, opens the PR, watches CI, squash-merges, refreshes
-local `main` (`git fetch origin main && git rebase origin/main`), and deletes the
-branch and worktree.
-
-The gate between `build` and `go` is deliberate: `build` is bounded and
-reversible, `go` pushes and merges. If you want it unattended, run `wq go`
-straight after `wq build` — but look at the diff first.
+The gate between `build` and what follows is deliberate: `build` is bounded and
+reversible, shipping pushes and merges. So `build` stops and you read the diff.
 
 If the reviewer still has blocking findings after 3 rounds, `build` exits 2 and
-stops. It does not hand a disputed diff to `go`.
+stops. It does not hand a disputed diff on to be shipped.
+
+### revise
+
+You read `diff.patch` and have a comment. `wq revise <slug> "<comment>"` runs one
+more round through the panes the build left open:
+
+```
+code pane  ← your comment, implements, runs tests, commits
+  → diff.patch    regenerated: git diff origin/main...HEAD
+  → revise.patch  just this round: git diff <sha before>..HEAD
+review pane → reads revise.patch, writes code-review.md, verdict
+  → stops
+```
+
+Repeat as often as you like — each call is self-contained, so there is no round
+limit. The panes persist, so round three lands in the same conversation that
+holds the plan, the build, and rounds one and two; your comments get terser.
+
+**One round per call, and it never auto-fixes.** During `build` the reviewer
+already had its rounds, so a finding it raises now is either something your
+comment caused or something it previously let pass — both worth your eyes, not
+an automatic rewrite of a diff you had already approved. `VERDICT: CHANGES` here
+prints the path and hands back to you.
+
+**The reviewer is scoped by instruction, not by omission.** It gets
+`revise.patch` as the thing to judge and `diff.patch` for context, because a
+delta-only reviewer is structurally blind to the call site the delta forgot to
+update — the regression lives outside the hunk that caused it. So
+`VERDICT: APPROVED` from a revise round means "this delta is sound", a weaker
+claim than the one `build` ends on. The thing to read before shipping is still
+the whole of `diff.patch`.
+
+Files are overwritten, not numbered. Every round is a commit in the worktree, so
+`git log` is the history and any past delta is `git diff <sha1>..<sha2>`. A
+second copy would be state to keep in sync.
+
+Firing two revises at once would interleave prompts into the same pane and lose
+one silently, so `revise` refuses while a turn is in flight.
+
+### ship
+
+`wq ship <slug>` opens a `ship-<slug>` tab in the inbox and runs `wq go <slug>`
+in it — push, PR, `gh pr checks --watch`, squash-merge, refresh local `main`
+(`git fetch origin main && git rebase origin/main`), delete the branch and
+worktree. It returns as soon as the command is typed, so the caller is free
+immediately and you watch it happen in the tab.
+
+The indirection is not decoration. `wq go` cannot run in the build panes,
+because its cleanup closes the workspace those panes live in and would delete
+the pane mid-command. It cannot run in the router, which has to stay responsive
+and would sit blocked for the length of CI. It cannot run in any agent pane at
+all, because agent bash tools time out long before a slow CI run finishes. A
+plain shell tab has none of those problems, and `herdr pane run` returns the
+moment the command is typed.
+
+`wq go` remains available to run by hand; `ship` is what the router calls.
 
 ## Why it is shaped this way
 
@@ -270,9 +337,11 @@ WQ_CLAUDE_PERMISSION_MODE=acceptEdits wq plan ...   # stricter, will stall on ba
 
 Those panes are unattended agents acting without confirmation. What keeps that
 reasonable is where they run: `plan` works in `~/Workspace/.wq/<slug>`, and
-`build` works in a throwaway worktree on its own branch. Neither touches your
-main checkout, and `wq go` — the only step that pushes or merges — is never run
-by an agent. Point them somewhere that matters and that reasoning stops holding.
+`build` and `revise` work in a throwaway worktree on its own branch. Neither
+touches your main checkout, and `wq go` — the only step that pushes or merges —
+is never run by an agent: `wq ship` puts it in a shell tab with no agent in it,
+and the router is told never to invoke it directly or to ask another pane to.
+Point them somewhere that matters and that reasoning stops holding.
 
 Pi does not gate tools this way, so reviewer panes need no equivalent flag.
 
@@ -338,7 +407,16 @@ Behaviour confirmed against herdr 0.7.5, worth knowing if you extend `wq`:
   `agent_name_taken`, so `wq` registers `<role>-<pane-id>` and renames the pane
   back to the short role name for display.
 - `agent prompt` reports failures as JSON on stdout while still exiting 0.
-  Redirecting stdout to `/dev/null` discards the error along with it.
+  Redirecting stdout to `/dev/null` discards the error along with it. `pane run`
+  does the same — `pane_not_found` comes back as JSON on a zero exit.
+- **`herdr pane run <pane> <cmd>...` types a command into a pane with no agent in
+  it and returns immediately** — measured at 0s for a `sleep 20`, with the pane
+  left running it. That is what makes `wq ship` possible: a long blocking command
+  in a plain shell tab, with the caller free straight away.
+- Snapshot panes carry a `label`, and `agent_start`'s `pane rename` sets it. With
+  the workspace labelled by slug, `<workspace label, pane label>` locates a build
+  pane with nothing persisted — which is how `wq revise` finds `code` and
+  `review` again after `build` has exited.
 - Valid `agent read --source` values: `visible`, `recent`, `recent_unwrapped`,
   `detection`. Not `screen`.
 - Agent status enum: `idle`, `working`, `blocked`, `done`, `unknown`.
@@ -376,5 +454,12 @@ does not double-send) and `wq chat` cold then warm on the same tab, which is the
 case where the pane starts the turn in `done`. `wq brainstorm` has not been
 re-run, but it uses the same primitive.
 
-Not yet run end to end: `build` and `go`. Read a `build` diff carefully the first
-few times, since `go` is the step that pushes and merges.
+Not yet run end to end: `build`, `revise`, `ship`, and `go`. Read a `build` diff
+carefully the first few times, since `ship` is what pushes and merges.
+
+Verified individually for the `revise`/`ship` pair: `wq list` now shows a live
+build workspace it previously filtered out; `<workspace label, pane label>`
+resolves a running build's `code` pane from the snapshot; `herdr pane run`
+returns in 0s against an agent-less pane and reports a bad pane as JSON on a zero
+exit; and every guard in `revise` and `ship` (missing build, missing comment)
+exits 1 with its message. The agent turns inside `revise` have not been run.
