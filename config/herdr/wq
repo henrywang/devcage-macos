@@ -65,6 +65,34 @@ ws_create() {  # label cwd -> "workspace_id pane_id"
     | jq -r '.result | "\(.workspace.workspace_id) \(.root_pane.pane_id)"'
 }
 
+ws_ids() {  # -> every open workspace id, sorted
+  herdr api snapshot | jq -r '.result.snapshot.workspaces[].workspace_id' | sort
+}
+
+# Close a parent-repo workspace wq opened for a build (see cmd_build), but only
+# while it is still what wq left behind: one tab, one pane, no agent. Once it
+# has been split, given a second tab or had an agent started in it, someone has
+# adopted it and it is no longer wq's to close.
+close_parent_ws() {  # workspace_id
+  [ -n "${1:-}" ] || return 0
+  # Never close the workspace this command is running in. `wq go` started by
+  # hand from the repo's own tab lives in that pane, and closing it mid-cleanup
+  # is the same self-destruct `wq ship` exists to avoid for the code pane.
+  if [ -n "${HERDR_PANE_ID:-}" ] && herdr api snapshot \
+      | jq -e --arg w "$1" --arg p "$HERDR_PANE_ID" \
+        '.result.snapshot.panes[] | select(.pane_id==$p and .workspace_id==$w)' \
+        >/dev/null 2>&1; then
+    return 0
+  fi
+  herdr api snapshot | jq -e --arg w "$1" '
+    .result.snapshot.workspaces[]
+    | select(.workspace_id == $w)
+    | select(.tab_count == 1 and .pane_count == 1)
+    | select(.agent_status == null or .agent_status == "unknown")' >/dev/null 2>&1 \
+    || return 0
+  herdr workspace close "$1" >/dev/null 2>&1 || true
+}
+
 pane_split() {  # parent_pane cwd -> pane_id
   herdr pane split --pane "$1" --direction right --cwd "$2" --no-focus \
     | jq -r '.result.pane.pane_id'
@@ -500,10 +528,29 @@ cmd_build() {
 
   log "creating worktree $branch"
   git -C "$repo" fetch origin
+  # One `worktree create` opens *two* workspaces when the repo has none open
+  # yet: the linked worktree, labelled with the slug, and one for the parent
+  # checkout, labelled with the repo name. Only the first comes back in the
+  # response, so the second is found by diffing the workspace list around the
+  # call and recorded in build.env — otherwise every build leaks a workspace
+  # nothing knows how to close. When the repo already had a workspace open the
+  # diff is empty, and that workspace is the user's, not wq's to touch.
+  local before; before="$(ws_ids)"
   local ws; ws="$(herdr worktree create --cwd "$repo" --branch "$branch" \
       --base origin/main --path "$wt_path" --label "$slug" --no-focus --json \
     | jq -r '.result.workspace.workspace_id')"
-  printf '%s\n%s\n%s\n' "$repo" "$branch" "$wt_path" > "$dir/build.env"
+  # The diff proves wq opened it; the predicate says which of the new ones it
+  # is. Concurrent wq commands open workspaces of their own, and picking by
+  # timing alone would eventually record — and later close — someone else's.
+  local created; created="$(comm -13 <(printf '%s\n' "$before") <(ws_ids))"
+  local parent
+  parent="$(herdr api snapshot | jq -r --arg r "$repo" --arg new "$created" '
+    ($new | split("\n") | map(select(length > 0))) as $n
+    | .result.snapshot.workspaces[]
+    | select(.workspace_id as $id | $n | index($id))
+    | select(.worktree.repo_root == $r and .worktree.is_linked_worktree == false)
+    | .workspace_id' | head -1)"
+  printf '%s\n%s\n%s\n%s\n' "$repo" "$branch" "$wt_path" "$parent" > "$dir/build.env"
 
   local p_code; p_code="$(herdr api snapshot \
     | jq -r --arg w "$ws" '.result.snapshot.panes[] | select(.workspace_id==$w) | .pane_id' | head -1)"
@@ -686,8 +733,10 @@ cmd_go() {
     die "wq go cannot run in an agent pane — it pushes and merges. Run: wq ship $slug"
   fi
 
-  local repo branch wt_path
-  { read -r repo; read -r branch; read -r wt_path; } < "$dir/build.env"
+  # The fourth line is the parent-repo workspace and may be absent — build.env
+  # files written before wq recorded it have three lines.
+  local repo branch wt_path parent=""
+  { read -r repo; read -r branch; read -r wt_path; read -r parent || true; } < "$dir/build.env"
 
   log "pushing $branch"
   git -C "$wt_path" push -u origin "$branch"
@@ -724,17 +773,43 @@ cmd_go() {
   fi
 
   log "merging PR #$pr"
-  (cd "$wt_path" && gh pr merge "$pr" --squash --delete-branch)
+  # No `--delete-branch`: gh cleans up the local side of it by switching the
+  # current checkout to the default branch first, and this checkout is a
+  # worktree — main is already checked out in $repo, so git refuses the second
+  # checkout and gh exits non-zero *after* the merge has landed, taking the rest
+  # of this function down with it. Merge only; both branches are deleted below,
+  # once the worktree that holds this one is gone.
+  (cd "$wt_path" && gh pr merge "$pr" --squash)
 
   log "refreshing $repo"
-  git -C "$repo" fetch origin main
-  git -C "$repo" rebase origin/main
+  # Unqualified fetch so --prune sees every remote-tracking ref: with an
+  # explicit `main` refspec it only prunes inside that refspec, and the merged
+  # branch's ref lingers after GitHub deletes the branch on merge.
+  git -C "$repo" fetch --prune origin || true
+  # Everything from here down is cleanup after a merge that has already landed,
+  # so nothing below may abort the function. Skip the rebase rather than fail
+  # it: $repo is the primary checkout, and rebasing a branch the user happens to
+  # be sitting on is worse than leaving it a commit behind origin/main.
+  if [ -z "$(git -C "$repo" status --porcelain)" ] \
+     && [ "$(git -C "$repo" symbolic-ref --quiet --short HEAD || true)" = main ]; then
+    git -C "$repo" rebase origin/main || log "could not fast-forward $repo — rebase by hand"
+  else
+    log "skipping refresh — $repo is dirty or not on main"
+  fi
 
   log "cleaning up"
   herdr worktree remove --workspace "$(herdr api snapshot \
     | jq -r --arg l "$slug" '.result.snapshot.workspaces[] | select(.label==$l) | .workspace_id' | head -1)" \
     --force >/dev/null 2>&1 || true
+  # The workspace may already be closed, in which case herdr has no id to remove
+  # and the checkout is still on disk holding the branch. Drop it directly, then
+  # prune, so `branch -D` is not refused by a worktree nobody is using.
+  git -C "$repo" worktree remove --force "$wt_path" 2>/dev/null || true
+  git -C "$repo" worktree prune 2>/dev/null || true
   git -C "$repo" branch -D "$branch" 2>/dev/null || true
+  # Repos with "automatically delete head branches" on have already dropped it.
+  git -C "$repo" push origin --delete "$branch" >/dev/null 2>&1 || true
+  close_parent_ws "$parent"
 
   notify "wq go: $slug" "PR #$pr merged"
   log "merged PR #$pr"
@@ -811,6 +886,15 @@ cmd_clean() {
   local ship; ship="$(herdr api snapshot | jq -r --arg l "ship-$slug" \
     '.result.snapshot.tabs[] | select(.label==$l) | .tab_id' | head -1)"
   [ -n "$ship" ] && herdr tab close "$ship" >/dev/null 2>&1 || true
+
+  # The parent-repo workspace is labelled with the repo, not the slug, so the
+  # loop above cannot see it either — its id is in build.env.
+  local dir; dir="$(slug_dir "$slug")"
+  if [ -s "$dir/build.env" ]; then
+    local _r _b _w parent=""
+    { read -r _r; read -r _b; read -r _w; read -r parent || true; } < "$dir/build.env"
+    close_parent_ws "$parent"
+  fi
 
   rm -rf "$(slug_dir "$slug")"
   log "cleaned $slug"
