@@ -674,6 +674,18 @@ cmd_go() {
   [ -s "$dir/build.env" ] || die "no build for $slug — run: wq build $slug"
   need gh
 
+  # The router's prompt tells it to call `wq ship` and never this. A prompt is
+  # advice, and this command pushes, merges and deletes branches — so the rule
+  # is enforced here too. herdr exports HERDR_PANE_ID into every pane, and a
+  # pane with an agent registered against it is an agent pane: the router, or a
+  # build pane it delegated to. The shell tab `wq ship` opens has no agent in
+  # it, so the sanctioned path passes straight through.
+  if [ -n "${HERDR_PANE_ID:-}" ] && herdr agent list 2>/dev/null \
+      | jq -e --arg p "$HERDR_PANE_ID" '.result.agents[]? | select(.pane_id==$p)' \
+        >/dev/null 2>&1; then
+    die "wq go cannot run in an agent pane — it pushes and merges. Run: wq ship $slug"
+  fi
+
   local repo branch wt_path
   { read -r repo; read -r branch; read -r wt_path; } < "$dir/build.env"
 
