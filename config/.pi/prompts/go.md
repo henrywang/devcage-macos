@@ -35,8 +35,14 @@ Rules:
 - **`revise` and `ship` act on a build that already exists, so the slug has to be
   resolved, never guessed.** Run `wq list` and use a slug from the `live:`
   section — a slug listed only under `scratch:` has no panes left and cannot be
-  revised. If more than one build is live and the request does not say which,
-  ask. Print the slug you resolved to before running the command.
+  revised. Always print the slug you resolved to before running the command.
+- When the request names a build ("the dark-mode one", `/go dark-mode: ...`),
+  use that. When it does not:
+  - **`revise` defaults to the slug marked `*`** in `wq list`, which is the build
+    worked on most recently. Say which one you picked. If the guess is wrong the
+    cost is one more revise.
+  - **`ship` never defaults.** If more than one build is live, ask which one.
+    Merging the wrong branch into main is not cheap to undo.
 - `wq chat`, `wq ask`, `wq brainstorm`, and `wq ship` return immediately.
   `wq plan`, `wq build`, and `wq revise` block for minutes while agents work —
   that is expected. Run one and report the result. Do not poll it, wrap it in a
