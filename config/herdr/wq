@@ -25,6 +25,7 @@ VAULT="${WQ_VAULT:-$HOME/Library/Mobile Documents/iCloud~md~obsidian/Documents/o
 PLAN_ROUNDS="${WQ_PLAN_ROUNDS:-3}"
 CODE_ROUNDS="${WQ_CODE_ROUNDS:-3}"
 TURN_TIMEOUT_MS="${WQ_TURN_TIMEOUT_MS:-1800000}"   # 30 min per agent turn
+CI_APPEAR_TIMEOUT="${WQ_CI_APPEAR_TIMEOUT:-120}"  # wait for CI to register on a new PR
 
 # Roles are `kind:model:level` so either side of a loop can be either agent.
 # The rule that matters is that the reviewer is not the model that wrote — which
@@ -673,6 +674,18 @@ cmd_go() {
   [ -s "$dir/build.env" ] || die "no build for $slug — run: wq build $slug"
   need gh
 
+  # The router's prompt tells it to call `wq ship` and never this. A prompt is
+  # advice, and this command pushes, merges and deletes branches — so the rule
+  # is enforced here too. herdr exports HERDR_PANE_ID into every pane, and a
+  # pane with an agent registered against it is an agent pane: the router, or a
+  # build pane it delegated to. The shell tab `wq ship` opens has no agent in
+  # it, so the sanctioned path passes straight through.
+  if [ -n "${HERDR_PANE_ID:-}" ] && herdr agent list 2>/dev/null \
+      | jq -e --arg p "$HERDR_PANE_ID" '.result.agents[]? | select(.pane_id==$p)' \
+        >/dev/null 2>&1; then
+    die "wq go cannot run in an agent pane — it pushes and merges. Run: wq ship $slug"
+  fi
+
   local repo branch wt_path
   { read -r repo; read -r branch; read -r wt_path; } < "$dir/build.env"
 
@@ -688,9 +701,24 @@ cmd_go() {
   local pr; pr="$(cd "$wt_path" && gh pr view --json number -q .number)"
   log "PR #$pr — waiting for CI"
 
+  # GitHub registers the check runs a few seconds after the PR opens, and until
+  # it does `gh pr checks --watch` exits straight away with "no checks reported"
+  # — which reads exactly like a CI failure but means the opposite. Wait for the
+  # first check to show up before handing over to --watch.
+  local waited=0 checks
+  while :; do
+    checks="$(cd "$wt_path" && gh pr checks "$pr" 2>&1 || true)"
+    case "$checks" in
+      *"no checks reported"*) ;;
+      *) break ;;
+    esac
+    [ "$waited" -lt "$CI_APPEAR_TIMEOUT" ] || die "no checks appeared on PR #$pr after ${CI_APPEAR_TIMEOUT}s — if the repo has no CI, merge by hand: gh pr merge $pr --squash --delete-branch"
+    sleep 5; waited=$(( waited + 5 ))
+  done
+
   # Watch CI in the shell. An agent polling `gh pr checks` in a loop is the most
   # expensive possible way to sit and wait for nothing.
-  if ! (cd "$wt_path" && gh pr checks --watch --fail-fast); then
+  if ! (cd "$wt_path" && gh pr checks "$pr" --watch --fail-fast); then
     notify "wq go: $slug" "CI failed on PR #$pr"
     die "CI failed on PR #$pr — fix, then re-run: wq go $slug"
   fi

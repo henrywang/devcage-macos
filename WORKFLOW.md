@@ -259,7 +259,16 @@ all, because agent bash tools time out long before a slow CI run finishes. A
 plain shell tab has none of those problems, and `herdr pane run` returns the
 moment the command is typed.
 
-`wq go` remains available to run by hand; `ship` is what the router calls.
+`wq go` remains available to run by hand; `ship` is what the router calls. The
+router's prompt says so, but a prompt is advice, so `go` enforces it: it reads
+`HERDR_PANE_ID`, and refuses when an agent is registered against that pane. The
+shell tab `ship` opens has no agent in it and passes through.
+
+`go` also waits for GitHub to register the check runs before it watches them.
+For the first few seconds after a PR opens there are none, and `gh pr checks
+--watch` exits non-zero with `no checks reported` — which reads exactly like a
+CI failure and is not one. It gives up after `WQ_CI_APPEAR_TIMEOUT` seconds
+(default 120) rather than merging something unchecked.
 
 ## Why it is shaped this way
 

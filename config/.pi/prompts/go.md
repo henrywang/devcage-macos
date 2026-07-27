@@ -33,16 +33,20 @@ Rules:
   slug when the request continues earlier work; check with `wq list` first.
 - For `build`, `<repo>` is the absolute path to the application repository.
 - **`revise` and `ship` act on a build that already exists, so the slug has to be
-  resolved, never guessed.** Run `wq list` and use a slug from the `live:`
-  section — a slug listed only under `scratch:` has no panes left and cannot be
-  revised. Always print the slug you resolved to before running the command.
+  resolved, never guessed.** Run `wq list` first and always print the slug you
+  resolved to before running the command.
+  - `revise` needs panes to work in, so its slug has to come from the `live:`
+    section. A slug listed only under `scratch:` has none left and has to be
+    rebuilt.
+  - `ship` needs only a build on disk, so its slug may come from either section.
+    A build whose workspace you have already closed is still shippable.
 - When the request names a build ("the dark-mode one", `/go dark-mode: ...`),
   use that. When it does not:
   - **`revise` defaults to the slug marked `*`** in `wq list`, which is the build
     worked on most recently. Say which one you picked. If the guess is wrong the
     cost is one more revise.
-  - **`ship` never defaults.** If more than one build is live, ask which one.
-    Merging the wrong branch into main is not cheap to undo.
+  - **`ship` never defaults.** If more than one build could be meant, ask which
+    one. Merging the wrong branch into main is not cheap to undo.
 - `wq chat`, `wq ask`, `wq brainstorm`, and `wq ship` return immediately.
   `wq plan`, `wq build`, and `wq revise` block for minutes while agents work —
   that is expected. Run one and report the result. Do not poll it, wrap it in a
@@ -50,9 +54,10 @@ Rules:
 - After `wq plan`, `wq build`, or `wq revise`, print the output paths and stop.
   Henry reviews the plan or the diff.
 - **Never run `wq go` yourself, and never tell another pane to run it.** It
-  pushes, merges, and deletes branches. `wq ship` is the only way it starts, and
-  only when Henry has explicitly asked for the change to go out — a comment on
-  the diff is a `revise`, not a `ship`.
+  pushes, merges, and deletes branches, and it blocks until CI finishes. `wq
+  ship` is the only way it starts, and only when Henry has explicitly asked for
+  the change to go out — a comment on the diff is a `revise`, not a `ship`.
+  `wq go` refuses to run in an agent pane, so trying it wastes a turn.
 - If a `wq` command exits non-zero, print its output verbatim and stop. Do not
   improvise a recovery or fall back to running the workflow by hand.
 - Never invoke `herdr` directly to create workspaces, panes, or agents. `wq` owns
