@@ -29,6 +29,9 @@ if ! command -v rustup &>/dev/null; then
     rustup component add rustfmt clippy
 fi
 
+echo "==> Installing wq..."
+uv tool install --upgrade herdr-workflow
+
 echo "==> Installing Claude Code..."
 if ! command -v claude &>/dev/null; then
     npm install -g @anthropic-ai/claude-code
@@ -92,12 +95,11 @@ ln -sf  "$DOTFILES/config/.claude/.CLAUDE.md"   "$HOME/.claude/CLAUDE.md"
 ln -sf  "$DOTFILES/config/.claude/settings.json" "$HOME/.claude/settings.json"
 ln -sfn "$DOTFILES/config/.claude/agents"        "$HOME/.claude/agents"
 
-# agent workflow — see WORKFLOW.md. Only prompts/, extensions/, and skills/ are
-# linked: ~/.pi/agent/settings.json is rewritten by pi on upgrade, so tracking it
-# would produce spurious diffs.
-mkdir -p "$HOME/bin" "$HOME/.pi/agent/prompts" "$HOME/.pi/agent/extensions" "$HOME/.pi/agent/skills"
-chmod +x "$DOTFILES/config/herdr/wq"
-ln -sf  "$DOTFILES/config/herdr/wq"          "$HOME/bin/wq"
+# agent workflow — see WORKFLOW.md. wq itself is installed above with uv; its
+# machine-specific configuration and the Pi router setup are linked from here.
+# ~/.pi/agent/settings.json is rewritten by pi on upgrade, so it is left alone.
+mkdir -p "$HOME/.config/wq" "$HOME/.pi/agent/prompts" "$HOME/.pi/agent/extensions" "$HOME/.pi/agent/skills"
+ln -sf  "$DOTFILES/config/wq/config.toml"     "$HOME/.config/wq/config.toml"
 ln -sf  "$DOTFILES/config/.pi/prompts/go.md" "$HOME/.pi/agent/prompts/go.md"
 
 # herdr agent integrations: without these, agent state is inferred from terminal

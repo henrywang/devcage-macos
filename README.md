@@ -40,6 +40,7 @@ Then open a new shell for all changes to take effect.
 | ripgrep | CLI | Fast recursive search |
 | starship | CLI | Cross-shell prompt |
 | node | CLI | JavaScript runtime |
+| uv | CLI | Python tool and package manager (installs `wq`) |
 | herdr | CLI | Terminal workspace / pane orchestrator for agents |
 | firefox | App | Web browser |
 | ghostty | App | Terminal emulator |
@@ -54,6 +55,7 @@ Then open a new shell for all changes to take effect.
 | Tool | Installer | Purpose |
 |------|-----------|---------|
 | Rust + rustfmt + clippy | rustup | Systems programming |
+| wq | `uv tool install herdr-workflow` | Multi-agent workflows on top of herdr |
 | Claude Code | npm | AI coding assistant |
 | pi | pi.dev install script | AI coding agent |
 
@@ -84,8 +86,8 @@ devcage-macos/
     │   │   └── gpt-usage.ts             # ChatGPT usage in the pi footer
     │   └── skills/
     │       └── browser/SKILL.md         # Playwright CLI browser automation
-    ├── herdr/
-    │   └── wq                           # herdr workspace orchestration script
+    ├── wq/
+    │   └── config.toml                  # machine-specific wq configuration
     ├── com.mitchellh.ghostty/
     │   └── config.ghostty               # Ghostty terminal config
     ├── git/
@@ -121,7 +123,7 @@ devcage-macos/
 | `~/.claude/CLAUDE.md` | `config/.claude/.CLAUDE.md` |
 | `~/.claude/settings.json` | `config/.claude/settings.json` |
 | `~/.claude/agents` | `config/.claude/agents/` |
-| `~/bin/wq` | `config/herdr/wq` |
+| `~/.config/wq/config.toml` | `config/wq/config.toml` |
 | `~/.pi/agent/prompts/go.md` | `config/.pi/prompts/go.md` |
 | `~/.pi/agent/extensions/*.ts` | `config/.pi/extensions/*.ts` |
 | `~/.pi/agent/skills/<skill>/` | `config/.pi/skills/<skill>/` |

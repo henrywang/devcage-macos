@@ -3,35 +3,33 @@
 One always-open inbox. You type a request, Pi routes it, and anything that needs
 real work gets its own herdr workspace with its own panes.
 
-Two files do the whole thing:
+The workflow uses the released [`herdr-workflow`](https://github.com/henrywang/herdr-workflow)
+package rather than a locally maintained Bash script:
 
-- `config/herdr/wq` → `~/bin/wq` — all herdr orchestration, in bash
-- `config/.pi/prompts/go.md` → `~/.pi/agent/prompts/go.md` — the router prompt
+- `wq` is installed with `uv tool install herdr-workflow`
+- `config/wq/config.toml` → `~/.config/wq/config.toml` holds local configuration
+- `config/.pi/prompts/go.md` → `~/.pi/agent/prompts/go.md` is the router prompt
 
-The rest of the Pi setup is tracked alongside them, not required by the routing
-itself but shared by every pane it spawns:
+The rest of the tracked Pi setup is shared by every pane:
 
-- `config/.pi/extensions/gpt-usage.ts` — ChatGPT subscription usage and token
-  totals in the Pi footer, refreshed every 5 minutes via `codex app-server`
-- `config/.pi/extensions/claude-project-skills.ts` — makes a repo's
-  `.claude/skills` visible to Pi, so skills written for Claude Code work unchanged
+- `config/.pi/extensions/gpt-usage.ts` — ChatGPT usage in the Pi footer
+- `config/.pi/extensions/claude-project-skills.ts` — exposes repo Claude skills to Pi
 - `config/.pi/skills/browser/` — Playwright CLI browser automation
 
-All of them are symlinked out of this repo by `setup.sh`. `~/.pi/agent/settings.json`
-is deliberately left alone — Pi rewrites it on upgrade, so tracking it would produce
-spurious diffs.
+`setup.sh` installs and links everything. `~/.pi/agent/settings.json` is deliberately
+left alone because Pi rewrites it on upgrade.
 
 ## Layout
 
 ```
 herdr session: main
-├── workspace "inbox"        ← always open, never closed
-│   ├── tab "router" → pi router (gpt-5.6-sol, medium)  ← you type here
-│   ├── tab "chat"   → one long-lived conversation
-│   └── tab "ask-*"  → one per repo question, disposable
-├── workspace "bs-<slug>"    ← brainstorm, interactive
+├── workspace "inbox"        ← always open
+│   ├── tab "router" → Pi router <- you type here
+│   ├── tab "chat"   → reusable conversation
+│   └── tab "ask-*"  → disposable repo questions
+├── workspace "bs-<slug>"    ← interactive brainstorm
 ├── workspace "plan-<slug>"  ← plan ↔ review loop
-└── workspace "<slug>"       ← build: worktree, code ↔ review loop
+└── workspace "<slug>"       ← worktree, code ↔ review loop
 ```
 
 ## Starting
@@ -42,446 +40,97 @@ Open Ghostty and run:
 work
 ```
 
-That is the whole thing. The `work` function in `.zshrc` ensures the herdr server
-is up, ensures the `inbox` workspace has a `router` tab with Pi running in it,
-and attaches. Every step checks before it acts, so on a warm machine it just
-reattaches to what was already there.
+The `work` function in `config/zsh/.zshrc` starts herdr if necessary, runs the
+idempotent `wq up`, and attaches. Then send requests from the router:
 
-Then talk to the router: `/go what's the weather today?`,
-`/go add dark mode to Berthly`, `/go why is login returning 500?`
+```
+/go what's the weather today?
+/go add dark mode to Berthly
+/go why is login returning 500?
+```
 
-**You almost never pay the setup cost.** Herdr sessions persist to
-`~/.config/herdr/session.json`, and with the Pi and Claude integrations installed
-(`herdr integration install pi`, `... claude`) `resume_agents_on_restore` brings
-agent panes back into their own conversation sessions. Verified: stopping the
-server outright and starting it again left the inbox workspace, the router tab,
-and the running Pi agent intact — `wq up` reported "router already running".
+The router only classifies and dispatches. It does not answer directly, so its
+context stays small. `chat` reuses a conversation; each `ask` gets a disposable
+tab; autonomous work gets dedicated panes.
 
-`wq up` on its own is the same bootstrap without attaching, safe to run any time.
-You need it only on a genuinely cold machine, or after closing the inbox by hand.
-
-Pi's defaults in `~/.pi/agent/settings.json` are already `openai-codex/gpt-5.6-sol`
-at `medium` thinking, which is what the router wants. Nothing to configure.
-
-### Integrations
-
-The herdr agent integrations are not optional for this setup:
+Herdr integrations are required so agent sessions survive server restarts:
 
 ```bash
 herdr integration install pi
 herdr integration install claude
 ```
 
-They report agent session identity, which is what lets panes resume across
-server restarts. What they do not do — for Claude, at least — is report agent
-*state*: the installed hook only sends `pane.report_agent_session`, so `idle`,
-`working`, and `blocked` are still inferred by matching patterns from herdr's
-detection manifest against the terminal. `herdr agent explain <pane>` prints the
-rule that produced the current state. That inference is what `wq`'s
-prompt-and-wait depends on, and where it is wrong is where `wq` has to be
-careful — see the herdr notes below. Pi reports its own state directly.
-
-The Claude integration adds a `SessionStart` hook to `~/.claude/settings.json` —
-that file is symlinked out of this repo, so the hook is tracked here. It runs for
-every Claude Code session on this machine, not only for `wq` panes.
-`herdr integration uninstall claude` reverses it.
-
-## The seven classes
-
-| Class | Mode | What happens |
-| --- | --- | --- |
-| `chat` | tab, instant | Reuses the inbox `chat` tab |
-| `ask` | tab, instant | New inbox tab scoped to a directory, disposable |
-| `brainstorm` | **interactive** | One Claude opus pane → Obsidian note |
-| `plan` | autonomous | plan ↔ review loop → `plan.md` |
-| `build` | autonomous | worktree → code ↔ review loop → commit |
-| `revise` | autonomous | one more code + review round on an existing build |
-| `ship` | tab, instant | inbox shell tab running `wq go` |
-
-**The router never answers anything.** It classifies and dispatches, and that is
-the whole point: its context stays flat no matter how many questions you ask.
-Answering inline looks cheaper per request but is not — the answer, and every
-file read behind it, stays in the router's context and is re-sent with every
-later routing decision. A tab pays a fixed cold start once and then throws the
-context away.
-
-`chat` reuses one long-lived tab, because follow-ups only make sense with the
-previous turn still in context. `ask` gets a fresh tab per question, because the
-file reads behind an answer are exactly what you want to discard. `wq tidy`
-closes the finished `ask-*` tabs and leaves `chat` alone.
-
-Interactive vs autonomous is the other split. `chat`, `ask`, `brainstorm`, and
-`ship` return immediately and focus the tab — you read the answer, or watch the
-merge, as it arrives. `plan`, `build`, and `revise` block for minutes, then
-notify.
-
-The loop you actually live in is `build` → read `diff.patch` → `revise` as many
-times as it takes → `ship`. Everything after `build` goes through the router
-like everything else, so you never leave the inbox:
-
-```
-/go add dark mode to Berthly          → plan, then build
-/go the toggle should persist         → revise
-/go the empty state still looks wrong → revise
-/go push and send the PR              → ship
-```
-
-**How the router knows which build you mean.** `revise` and `ship` act on a build
-that already exists, so the slug has to be resolved rather than invented. `wq list`
-splits its output into `live:` — builds with panes still open, the only ones that
-can be revised — and `scratch:`, and marks one live build with `*`: the one whose
-`diff.patch` is newest, which is the one you were last working on. `build` and
-every `revise` rewrite that file, so the marker is read back out of state that had
-to exist anyway rather than tracked in an index.
-
-Name the build if you want to be sure — `/go dark-mode: the toggle should persist`.
-Otherwise `revise` takes the starred one and says which it picked; a wrong guess
-costs one more revise. **`ship` never defaults** — with more than one build live it
-asks, because merging the wrong branch into main is not cheap to undo.
+`setup.sh` runs both commands when herdr is available.
 
 ## Commands
 
 ```bash
 wq up                             # ensure inbox + router (idempotent)
 wq chat       "<message>"         # reuse the inbox chat tab
-wq ask        "<question>"        # new inbox tab, scoped to $PWD
-wq tidy                           # close finished ask tabs
-wq brainstorm <slug> "<idea>"     # interactive pane, note in Obsidian
-wq plan       <slug> "<request>"  # → ~/Workspace/.wq/<slug>/plan.md
-wq build      <slug> [repo]       # → worktree + committed diff
-wq revise     <slug> "<comment>"  # one more code + review round on that build
-wq ship       <slug>              # run `wq go` in an inbox shell tab
-wq go         <slug>              # push, PR, wait for CI, merge, clean up
-wq list                           # what is running (* = last worked on)
-wq clean      <slug>              # drop the workspace and scratch dir
+wq ask        "<question>"        # fresh tab, scoped to the current directory
+wq tidy                           # close completed ask tabs
+wq brainstorm <slug> "<idea>"     # interactive pane and Obsidian note
+wq plan       <slug> "<request>"  # bounded plan ↔ review loop
+wq build      <slug> [repo]       # worktree and bounded code ↔ review loop
+wq revise     <slug> "<comment>"  # one additional code + review round
+wq ship       <slug>              # run wq go in an inbox shell tab
+wq go         <slug>              # push, PR, CI, merge, and cleanup
+wq list                           # active workspaces
+wq clean      <slug>              # remove a workspace and scratch directory
+wq doctor                         # check dependencies and configuration
 ```
 
-`wq ask` scopes the tab to the current directory. Override with
-`WQ_ASK_CWD=~/Workspace/Berthly wq ask "where is auth handled?"`.
-
-Both need a workspace labelled `inbox` to exist, or they exit with instructions
-to create one.
-
-### brainstorm
-
-Creates one Claude opus pane and focuses it. You stay and talk. The note lands at:
+The normal path is:
 
 ```
-~/Library/Mobile Documents/iCloud~md~obsidian/Documents/obsidian/inbox/YYYY-MM-DD-<slug>.md
+plan → inspect plan.md → build → inspect diff.patch → revise as needed → ship
 ```
 
-with `tags: [brainstorm]` frontmatter so it joins the graph instead of sitting as
-an orphan. No reviewer pane — a critic during ideation kills the divergence you
-came for. Sharpen it afterwards with `wq plan` if it turns into something.
+A different model reviews the writer. Both automatic loops are capped at three
+rounds. Content moves between panes by file path rather than being pasted into
+prompts. `build` stops before anything is pushed; `ship` performs the irreversible
+work in a plain shell tab, never in an agent pane.
 
-If Obsidian has the note open while the agent writes, iCloud can produce a sync
-conflict. Close the note, or let the agent finish before you open it.
+Scratch artifacts live under `~/Workspace/.wq/<slug>`. Brainstorm notes go to the
+Obsidian vault configured in `config/wq/config.toml`.
 
-### plan
+## Configuration
 
-Two panes: `plan` and `review`, each configurable — see Roles. By default the
-planner is Claude opus and the reviewer is Pi `gpt-5.6-sol` at high thinking.
+Configuration is loaded in this order, with later layers winning:
 
-1. Planner writes `plan.md`
-2. Reviewer reads `plan.md`, writes `review.md`, ends with a verdict line
-3. If `VERDICT: CHANGES`, planner revises — up to 3 rounds
-4. Notification; you review `plan.md`
+1. built-in defaults
+2. `~/.config/wq/config.toml`
+3. a project's `.wq.toml`
+4. `WQ_*` environment variables
 
-A different model reviews than writes. A second pass of the same model agrees
-with itself far too readily.
+The tracked config contains only this machine's Obsidian note sink. Agent roles,
+round limits, scratch paths, and herdr settings can also be configured in TOML:
 
-### build
+```toml
+[agents]
+plan = "claude:opus:high"
+code = "claude:sonnet:high"
+review = "pi:openai-codex/gpt-5.6-sol:high"
 
-```
-worktree wq/<slug> off origin/main
-  → code pane (Claude sonnet) implements plan.md, runs tests, commits
-  → review pane reviews `git diff origin/main...HEAD`, up to 3 rounds
-  → stops. You review the diff.
-```
+[loops]
+plan_rounds = 3
+code_rounds = 3
 
-The gate between `build` and what follows is deliberate: `build` is bounded and
-reversible, shipping pushes and merges. So `build` stops and you read the diff.
+[paths]
+root = "~/Workspace/.wq"
+notes = "~/Library/Mobile Documents/iCloud~md~obsidian/Documents/obsidian"
 
-If the reviewer still has blocking findings after 3 rounds, `build` exits 2 and
-stops. It does not hand a disputed diff on to be shipped.
-
-### revise
-
-You read `diff.patch` and have a comment. `wq revise <slug> "<comment>"` runs one
-more round through the panes the build left open:
-
-```
-code pane  ← your comment, implements, runs tests, commits
-  → diff.patch    regenerated: git diff origin/main...HEAD
-  → revise.patch  just this round: git diff <sha before>..HEAD
-review pane → reads revise.patch, writes code-review.md, verdict
-  → stops
+[herdr]
+socket = "auto"
 ```
 
-Repeat as often as you like — each call is self-contained, so there is no round
-limit. The panes persist, so round three lands in the same conversation that
-holds the plan, the build, and rounds one and two; your comments get terser.
-
-**One round per call, and it never auto-fixes.** During `build` the reviewer
-already had its rounds, so a finding it raises now is either something your
-comment caused or something it previously let pass — both worth your eyes, not
-an automatic rewrite of a diff you had already approved. `VERDICT: CHANGES` here
-prints the path and hands back to you.
-
-**The reviewer is scoped by instruction, not by omission.** It gets
-`revise.patch` as the thing to judge and `diff.patch` for context, because a
-delta-only reviewer is structurally blind to the call site the delta forgot to
-update — the regression lives outside the hunk that caused it. So
-`VERDICT: APPROVED` from a revise round means "this delta is sound", a weaker
-claim than the one `build` ends on. The thing to read before shipping is still
-the whole of `diff.patch`.
-
-Files are overwritten, not numbered. Every round is a commit in the worktree, so
-`git log` is the history and any past delta is `git diff <sha1>..<sha2>`. A
-second copy would be state to keep in sync.
-
-Firing two revises at once would interleave prompts into the same pane and lose
-one silently, so `revise` refuses while a turn is in flight.
-
-### ship
-
-`wq ship <slug>` opens a `ship-<slug>` tab in the inbox and runs `wq go <slug>`
-in it — push, PR, `gh pr checks --watch`, squash-merge, refresh local `main`
-(`git fetch origin main && git rebase origin/main`), delete the branch and
-worktree. It returns as soon as the command is typed, so the caller is free
-immediately and you watch it happen in the tab.
-
-The indirection is not decoration. `wq go` cannot run in the build panes,
-because its cleanup closes the workspace those panes live in and would delete
-the pane mid-command. It cannot run in the router, which has to stay responsive
-and would sit blocked for the length of CI. It cannot run in any agent pane at
-all, because agent bash tools time out long before a slow CI run finishes. A
-plain shell tab has none of those problems, and `herdr pane run` returns the
-moment the command is typed.
-
-`wq go` remains available to run by hand; `ship` is what the router calls. The
-router's prompt says so, but a prompt is advice, so `go` enforces it: it reads
-`HERDR_PANE_ID`, and refuses when an agent is registered against that pane. The
-shell tab `ship` opens has no agent in it and passes through.
-
-`go` also waits for GitHub to register the check runs before it watches them.
-For the first few seconds after a PR opens there are none, and `gh pr checks
---watch` exits non-zero with `no checks reported` — which reads exactly like a
-CI failure and is not one. It gives up after `WQ_CI_APPEAR_TIMEOUT` seconds
-(default 120) rather than merging something unchecked.
-
-## Why it is shaped this way
-
-**State lives where it already is.** Git is the state for `build`. Files on disk
-are the state for `plan` and `brainstorm`. `herdr api snapshot` is the state for
-what is running. There is no index to reconcile, so there is nothing to drift.
-
-**Bash orchestrates, models do the work.** Every `workspace create` / `pane split`
-/ `agent start` decision made by model reasoning costs tokens and fails
-differently each time. In `wq` those are fixed lines of shell.
-
-**Paths between panes, never content.** The reviewer gets `plan.md` or
-`diff.patch` as a path. Pasting a plan or a diff from one pane into another
-prompt is the largest avoidable cost in a review loop.
-
-**Convergence is a grep.** Reviewers end their file with `VERDICT: APPROVED` or
-`VERDICT: CHANGES`. "Until the reviewer has no more updates" is unbounded — two
-agents will nitpick each other indefinitely. Three rounds, then it stops.
-
-**CI waiting is pure shell.** `gh pr checks --watch` blocks for free. An agent
-polling `gh pr checks` is the most expensive possible way to wait.
-
-## Tuning
-
-Environment variables, all optional:
-
-| Variable | Default |
-| --- | --- |
-| `WQ_ROOT` | `~/Workspace/.wq` |
-| `WQ_VAULT` | the iCloud Obsidian vault |
-| `WQ_INBOX_LABEL` | `inbox` |
-| `WQ_ASK_CWD` | `$PWD` |
-| `WQ_PLAN_ROUNDS` | `3` |
-| `WQ_CODE_ROUNDS` | `3` |
-| `WQ_TURN_TIMEOUT_MS` | `1800000` (30 min per agent turn) |
-
-## Roles
-
-Each role is a `kind:model:level` spec, so either side of a loop can be either
-agent. `claude` takes `--model` and `--effort`; `pi` takes `--model` and
-`--thinking`.
-
-| Variable | Default |
-| --- | --- |
-| `WQ_AGENT_PLAN` | `claude:opus:high` |
-| `WQ_AGENT_CODE` | `claude:sonnet:high` |
-| `WQ_AGENT_REVIEW` | `pi:openai-codex/gpt-5.6-sol:high` |
-| `WQ_AGENT_IDEA` | `claude:opus:high` |
-| `WQ_AGENT_ASK` | `pi:openai-codex/gpt-5.6-sol:medium` |
-| `WQ_AGENT_ROUTER` | `pi:openai-codex/gpt-5.6-sol:medium` |
-
-`WQ_AGENT_ROUTER` is the odd one out: it is not half of a loop, it is the agent
-`wq up` starts in the inbox `router` tab. It only classifies and dispatches, so
-`medium` thinking is enough — the same model the reviewer runs at `high`.
-
-The rule that matters is that **the reviewer is not the model that wrote**. Which
-way round you assign them is a free choice. To have opus review a plan written by
-GPT:
+One-off environment overrides still work, for example:
 
 ```bash
-WQ_AGENT_PLAN=pi:openai-codex/gpt-5.6-sol:high \
-WQ_AGENT_REVIEW=claude:opus:high \
-  wq plan <slug> "<request>"
+WQ_AGENT_CODE=claude:opus:high wq build <slug> <repo>
 ```
 
-Opus for a gnarly implementation: `WQ_AGENT_CODE=claude:opus:high wq build <slug>`.
-
-Two things to weigh before flipping `plan` or `build`:
-
-- The writer explores the repo and edits files. Claude Code is built for that,
-  and Pi's tooling is lighter. The reviewer mostly reads a plan or a diff, so it
-  is the easier seat to move.
-- A Claude reviewer is a second pane running with permissions bypassed. A Pi
-  reviewer needs no such flag, so the current default keeps exactly one
-  unattended-permission pane per loop instead of two.
-
-`brainstorm` has no reviewer, so `WQ_AGENT_IDEA` is a plain single-agent choice.
-
-## Permissions
-
-Autonomous panes cannot stop to ask. Claude Code prompts for permission on its
-first tool use, which parks the pane in `blocked` and stalls the loop, so `wq`
-starts Claude panes with `--permission-mode auto`:
-
-```bash
-WQ_CLAUDE_PERMISSION_MODE=acceptEdits wq plan ...   # stricter, will stall on bash
-```
-
-Those panes are unattended agents acting without confirmation. What keeps that
-reasonable is where they run: `plan` works in `~/Workspace/.wq/<slug>`, and
-`build` and `revise` work in a throwaway worktree on its own branch. Neither
-touches your main checkout, and `wq go` — the only step that pushes or merges —
-is never run by an agent: `wq ship` puts it in a shell tab with no agent in it,
-and the router is told never to invoke it directly or to ask another pane to.
-Point them somewhere that matters and that reasoning stops holding.
-
-Pi does not gate tools this way, so reviewer panes need no equivalent flag.
-
-If an agent does block, `wq` prints the last 25 lines of the pane and exits
-rather than reporting a confusingly empty output file. Attach with
-`herdr agent attach <pane>` to see what it is asking.
-
-This works: a Claude planner that stopped to ask which language to scaffold was
-reported as `blocked`, and `wq` printed the question and exited 1. Do not assume
-it is airtight, though. Claude's `idle` rule (a drawn prompt box, priority 950)
-outranks its `blocked` rules for option lists (840–850), and the trust dialog is
-a case where a question satisfies the prompt-box rule and reads as `idle`. A
-question that goes undetected that way is caught one step later by the mtime
-check, as "file was not updated this round" — the run still stops, the message
-just points at the symptom rather than the question on screen.
-
-## Starting the server cleanly
-
-`wq` needs a running herdr server. Start it the normal way — `herdr` in a fresh
-terminal.
-
-Do not start it from inside a Claude Code session. Panes inherit the server's
-environment, so an inherited `CLAUDECODE=1` brings nested Claude panes up in
-manual mode with prompts disabled, and every `wq` turn stalls. If that happens,
-`herdr server stop` and restart from a clean shell.
-
-## herdr notes
-
-Behaviour confirmed against herdr 0.7.5, worth knowing if you extend `wq`:
-
-- Every CLI call emits JSON on stdout. `--json` exists only on `worktree`
-  subcommands; elsewhere it is rejected as an unknown option.
-- `workspace create` returns the root pane too, so a simple workspace needs no
-  `tab create`.
-- **A finished turn lands in `done`, but it does not stay there.** Once the pane
-  has been read it settles back to `idle`, so waiting on `done` alone hangs for
-  the full turn timeout on work that finished minutes ago — seen with a Pi
-  reviewer whose review file was already on disk. Waiting on `idle` is only
-  ambiguous before the agent picks the prompt up, which confirmed delivery
-  already rules out, so `wq` waits on `done`, `blocked`, and `idle`, then
-  re-checks after three seconds in case the pane merely flashed idle mid-turn.
-- Target agents by `pane_id`, not by name. Names are not unique across concurrent
-  workspaces; pane IDs are.
-- **Neither `agent start` returning nor `interactive_ready` means the agent
-  accepts input.** Readiness is read off the screen — the detection manifest
-  matches the prompt box — so it flips as soon as a composer is drawn, which
-  happens well before Claude Code will take anything typed into it. A prompt sent
-  into that gap is dropped silently: no error, no text in the composer, no state
-  change. Measured on a fresh Claude pane: ready at 4.1s, prompts still being
-  discarded at 23s, accepted instantly a moment later. Nothing in the status,
-  the terminal title, or the screen distinguishes the two. **Delivery has to be
-  confirmed, not predicted** — `wq` records `state_change_seq` before prompting,
-  waits ten seconds for it to move, and re-sends if it did not.
-- **Claude Code's trust dialog looks exactly like readiness.** The first run in
-  any directory asks "Is this a project you created or one you trust?", and the
-  `❯` in that dialog's option list satisfies the readiness rule. Prompt into it
-  and the text is swallowed as dialog input while its Enter confirms the
-  highlighted option. Every `wq` Claude pane hits this, because the plan scratch
-  dir and the build worktree are both new directories. `wq` answers the dialog
-  itself before prompting.
-- **Agent names are global, not per-workspace**, and must match `[a-z0-9_-]{1,32}`.
-  Two concurrent workspaces each starting a `review` pane collide with
-  `agent_name_taken`, so `wq` registers `<role>-<pane-id>` and renames the pane
-  back to the short role name for display.
-- `agent prompt` reports failures as JSON on stdout while still exiting 0.
-  Redirecting stdout to `/dev/null` discards the error along with it. `pane run`
-  does the same — `pane_not_found` comes back as JSON on a zero exit.
-- **`herdr pane run <pane> <cmd>...` types a command into a pane with no agent in
-  it and returns immediately** — measured at 0s for a `sleep 20`, with the pane
-  left running it. That is what makes `wq ship` possible: a long blocking command
-  in a plain shell tab, with the caller free straight away.
-- Snapshot panes carry a `label`, and `agent_start`'s `pane rename` sets it. With
-  the workspace labelled by slug, `<workspace label, pane label>` locates a build
-  pane with nothing persisted — which is how `wq revise` finds `code` and
-  `review` again after `build` has exited.
-- Valid `agent read --source` values: `visible`, `recent`, `recent_unwrapped`,
-  `detection`. Not `screen`.
-- Agent status enum: `idle`, `working`, `blocked`, `done`, `unknown`.
-
-Terminal state is a heuristic, so `wq` confirms every turn that should produce
-output by checking the file's mtime actually changed. If an agent stalls, you get
-a clear error instead of a silently empty plan.
-
-Watch for `set -o pipefail` with `grep -q` if you extend this: `grep -q` exits on
-first match, herdr takes SIGPIPE, and the pipeline reports failure for a command
-that succeeded. `wq` captures output and matches with `case` instead.
-
-## Status
-
-Run end to end against herdr 0.7.5: `wq up` (both cold and warm, idempotent),
-`wq chat` (including tab reuse across turns), `wq ask` (fresh tab, correct answer
-from a real file read), and `wq tidy` (closes `ask-*`, leaves `chat`). Session
-persistence confirmed across a full server stop and restart.
-
-Verified individually: workspace/tab/pane/agent creation, tab rename,
-prompt-and-wait, pane reads, workspace and tab close, and every JSON shape `wq`
-parses.
-
-`wq plan` has since been run end to end on throwaway requests, including a full
-two-round loop: fresh Claude planner pane (trust dialog answered, first prompt
-dropped, re-sent and taken), plan written, Pi reviewer pane, review written with
-a verdict, plan revised, reviewed again, round limit honoured, exit 0. Both
-agent kinds, both loop halves, warm panes taking every prompt first try.
-
-Every prompt now goes through `deliver()`, so `brainstorm`, `chat`, and `ask`
-inherit the same confirmation; a dropped prompt in a tab you are not watching
-was previously silent. Re-verified since: `wq ask` against a Claude pane in a
-new directory (dialog answered, one retry, answer landed exactly once — a retry
-does not double-send) and `wq chat` cold then warm on the same tab, which is the
-case where the pane starts the turn in `done`. `wq brainstorm` has not been
-re-run, but it uses the same primitive.
-
-Not yet run end to end: `build`, `revise`, `ship`, and `go`. Read a `build` diff
-carefully the first few times, since `ship` is what pushes and merges.
-
-Verified individually for the `revise`/`ship` pair: `wq list` now shows a live
-build workspace it previously filtered out; `<workspace label, pane label>`
-resolves a running build's `code` pane from the snapshot; `herdr pane run`
-returns in 0s against an agent-less pane and reports a bad pane as JSON on a zero
-exit; and every guard in `revise` and `ship` (missing build, missing comment)
-exits 1 with its message. The agent turns inside `revise` have not been run.
+Run `wq doctor` after installation or when the workflow cannot start. See the
+[upstream README](https://github.com/henrywang/herdr-workflow#readme) and
+[`docs/behaviors.md`](https://github.com/henrywang/herdr-workflow/blob/main/docs/behaviors.md)
+for architecture, failure modes, and implementation details.

@@ -1,0 +1,4 @@
+# Defaults live in herdr-workflow. Keep only machine-specific choices here.
+
+[paths]
+notes = "~/Library/Mobile Documents/iCloud~md~obsidian/Documents/obsidian"
