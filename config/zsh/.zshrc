@@ -39,6 +39,8 @@ setopt COMPLETE_ALIASES
 
 # Vi mode
 bindkey -v
+# Herdr reserves Ctrl-A as its prefix key.
+bindkey '^b' beginning-of-line
 
 # ============================================================
 # Autosuggestion
