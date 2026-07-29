@@ -53,16 +53,97 @@ function windows(snapshot: RateLimitSnapshot): RateLimitWindow[] {
 	);
 }
 
+function mergeSnapshot(
+	existing: RateLimitSnapshot | undefined,
+	incoming: RateLimitSnapshot,
+): RateLimitSnapshot {
+	if (!existing || existing.limitId !== incoming.limitId) return incoming;
+
+	const byDuration = new Map<number, RateLimitWindow>();
+	for (const window of windows(existing)) byDuration.set(window.windowDurationMins, window);
+	for (const window of windows(incoming)) byDuration.set(window.windowDurationMins, window);
+	const mergedWindows = Array.from(byDuration.values()).sort(
+		(left, right) => left.windowDurationMins - right.windowDurationMins,
+	);
+
+	return {
+		...existing,
+		...incoming,
+		limitName: incoming.limitName ?? existing.limitName,
+		credits: incoming.credits ?? existing.credits,
+		planType: incoming.planType ?? existing.planType,
+		primary: mergedWindows[0] ?? null,
+		secondary: mergedWindows[1] ?? null,
+	};
+}
+
+function mergeResponses(
+	existing: RateLimitsResponse | undefined,
+	incoming: RateLimitsResponse,
+): RateLimitsResponse {
+	if (!existing) return incoming;
+
+	const rateLimitsByLimitId = { ...existing.rateLimitsByLimitId };
+	for (const [limitId, snapshot] of Object.entries(incoming.rateLimitsByLimitId)) {
+		rateLimitsByLimitId[limitId] = mergeSnapshot(rateLimitsByLimitId[limitId], snapshot);
+	}
+
+	return {
+		rateLimits: incoming.rateLimits
+			? mergeSnapshot(existing.rateLimits ?? undefined, incoming.rateLimits)
+			: existing.rateLimits,
+		rateLimitsByLimitId,
+	};
+}
+
+function headerValue(headers: Record<string, string>, name: string): string | undefined {
+	const normalizedName = name.toLowerCase();
+	for (const [key, value] of Object.entries(headers)) {
+		if (key.toLowerCase() === normalizedName) return value;
+	}
+	return undefined;
+}
+
+function windowFromHeaders(
+	headers: Record<string, string>,
+	prefix: "primary" | "secondary",
+): RateLimitWindow | null {
+	const usedPercent = Number(headerValue(headers, `x-codex-${prefix}-used-percent`));
+	const windowDurationMins = Number(headerValue(headers, `x-codex-${prefix}-window-minutes`));
+	const resetsAt = Number(headerValue(headers, `x-codex-${prefix}-reset-at`));
+	if (![usedPercent, windowDurationMins, resetsAt].every(Number.isFinite)) return null;
+	if (windowDurationMins <= 0 || resetsAt <= 0) return null;
+	return { usedPercent, windowDurationMins, resetsAt };
+}
+
+function snapshotFromHeaders(headers: Record<string, string>): RateLimitSnapshot | null {
+	const primary = windowFromHeaders(headers, "primary");
+	const secondary = windowFromHeaders(headers, "secondary");
+	if (!primary && !secondary) return null;
+	return {
+		limitId: "codex",
+		limitName: null,
+		primary,
+		secondary,
+		credits: null,
+		planType: null,
+	};
+}
+
 function formatStatus(snapshot: RateLimitSnapshot, ctx: ExtensionContext): string {
 	const theme = ctx.ui.theme;
 	const plan = snapshot.planType
 		? ` ${snapshot.planType[0]?.toUpperCase()}${snapshot.planType.slice(1)}`
 		: "";
-	const parts = windows(snapshot).map((window) => {
+	const snapshotWindows = windows(snapshot);
+	const parts = snapshotWindows.map((window) => {
 		const text = `${windowName(window.windowDurationMins)} ${Math.round(window.usedPercent)}%`;
 		const color = window.usedPercent >= 90 ? "error" : window.usedPercent >= 75 ? "warning" : "dim";
 		return theme.fg(color, text);
 	});
+	if (snapshot.planType && !snapshotWindows.some((window) => window.windowDurationMins === 300)) {
+		parts.unshift(theme.fg("dim", "5h n/a"));
+	}
 	return `${theme.fg("accent", `GPT${plan}`)} ${parts.join(theme.fg("dim", " · "))}`;
 }
 
@@ -83,10 +164,14 @@ function formatDetails(response: RateLimitsResponse): string {
 		.map((snapshot) => {
 			const label = snapshot.limitName ?? snapshot.limitId;
 			const plan = snapshot.planType ? ` (${snapshot.planType})` : "";
-			const limits = windows(snapshot).map(
+			const snapshotWindows = windows(snapshot);
+			const limits = snapshotWindows.map(
 				(window) =>
 					`${windowName(window.windowDurationMins)}: ${Math.round(window.usedPercent)}% used, resets ${formatReset(window.resetsAt)}`,
 			);
+			if (snapshot.planType && !snapshotWindows.some((window) => window.windowDurationMins === 300)) {
+				limits.unshift("5h: usage unavailable from OpenAI");
+			}
 			return `${label}${plan}: ${limits.join("; ")}`;
 		})
 		.join("\n");
@@ -276,9 +361,9 @@ export default function (pi: ExtensionAPI) {
 		});
 		try {
 			const response = await refreshPromise;
-			latest = response;
+			latest = mergeResponses(latest, response);
 			if (!stopped) requestFooterRender?.();
-			return response;
+			return latest;
 		} finally {
 			refreshPromise = undefined;
 		}
@@ -292,6 +377,21 @@ export default function (pi: ExtensionAPI) {
 		interval = setInterval(() => {
 			if (currentContext) void refresh(currentContext).catch(() => {});
 		}, REFRESH_INTERVAL_MS);
+	});
+
+	pi.on("after_provider_response", (event) => {
+		const snapshot = snapshotFromHeaders(event.headers);
+		if (!snapshot) return;
+		const current = latest?.rateLimitsByLimitId.codex ?? latest?.rateLimits ?? undefined;
+		const merged = mergeSnapshot(current, snapshot);
+		latest = {
+			rateLimits: merged,
+			rateLimitsByLimitId: {
+				...latest?.rateLimitsByLimitId,
+				codex: merged,
+			},
+		};
+		if (!stopped) requestFooterRender?.();
 	});
 
 	pi.on("agent_settled", async (_event, ctx) => {
