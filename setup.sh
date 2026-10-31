@@ -32,6 +32,12 @@ fi
 echo "==> Installing wq..."
 uv tool install --upgrade herdr-workflow
 
+# Scans third-party agent skills before they are added to config/.claude/skills.
+echo "==> Installing SkillSpector..."
+if ! command -v skillspector &>/dev/null && [ ! -x "$HOME/.local/bin/skillspector" ]; then
+    uv tool install "git+https://github.com/NVIDIA/skillspector.git@v2.13.2"
+fi
+
 echo "==> Installing Claude Code..."
 if ! command -v claude &>/dev/null; then
     npm install -g @anthropic-ai/claude-code
@@ -89,11 +95,21 @@ mkdir -p "$HOME/Library/Application Support/com.mitchellh.ghostty"
 ln -sf  "$DOTFILES/config/com.mitchellh.ghostty/config.ghostty" \
         "$HOME/Library/Application Support/com.mitchellh.ghostty/config.ghostty"
 
-# claude code — global instructions, settings, and agents
-mkdir -p "$HOME/.claude"
+# claude code — global instructions, settings, agents, and skills
+mkdir -p "$HOME/.claude/skills"
 ln -sf  "$DOTFILES/config/.claude/.CLAUDE.md"   "$HOME/.claude/CLAUDE.md"
 ln -sf  "$DOTFILES/config/.claude/settings.json" "$HOME/.claude/settings.json"
 ln -sfn "$DOTFILES/config/.claude/agents"        "$HOME/.claude/agents"
+# One symlink per skill: ~/.claude/skills also holds skills Claude syncs itself (synced/).
+for skill in "$DOTFILES"/config/.claude/skills/*/; do
+    [ -d "$skill" ] || continue
+    dest="$HOME/.claude/skills/$(basename "$skill")"
+    if [ -e "$dest" ] && [ ! -L "$dest" ]; then
+        echo "    skipping $(basename "$skill"): $dest exists and is not a symlink"
+    else
+        ln -sfn "${skill%/}" "$dest"
+    fi
+done
 
 # agent workflow — see WORKFLOW.md. wq itself is installed above with uv; its
 # machine-specific configuration and the Pi router setup are linked from here.

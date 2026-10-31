@@ -58,8 +58,21 @@ Then open a new shell for all changes to take effect.
 | wq | `uv tool install herdr-workflow` | Multi-agent workflows on top of herdr |
 | Claude Code | npm | AI coding assistant |
 | pi | pi.dev install script | AI coding agent |
+| SkillSpector | `uv tool install` (pinned to v2.13.2) | Security scan for third-party agent skills |
 
 `herdr` and `pi` together drive the agent workflow — see [WORKFLOW.md](WORKFLOW.md).
+
+### Claude Code skills (`config/.claude/skills/`)
+
+| Skill | Source | Purpose |
+|-------|--------|---------|
+| no-ai-slop | [petergyang/no-ai-slop](https://github.com/petergyang/no-ai-slop) at `000650b`, MIT | Detect or remove AI-slop patterns in writing |
+
+Third-party skills are kept as a copy of the exact files that were scanned. To add or update one:
+
+1. Download the skill at a specific commit into an empty folder.
+2. Read `SKILL.md` and any scripts, then run `skillspector scan <folder> --no-llm`. Only continue if the result is SAFE.
+3. Copy the files (and the upstream `LICENSE`) into `config/.claude/skills/<name>/`, update the commit in the table above, and run `setup.sh` or create the symlink by hand.
 
 ### Zsh plugins (cloned into `config/zsh/`)
 
@@ -78,7 +91,9 @@ devcage-macos/
     ├── .claude/                         # Claude Code global config
     │   ├── .CLAUDE.md                   # Global instructions
     │   ├── settings.json                # Global settings
-    │   └── agents/                      # Custom agents
+    │   ├── agents/                      # Custom agents
+    │   └── skills/                      # Global skills (scanned copies)
+    │       └── no-ai-slop/              # AI-slop detection and editing
     ├── .pi/
     │   ├── prompts/go.md                # pi router prompt
     │   ├── extensions/                  # pi extensions (TypeScript)
@@ -123,6 +138,7 @@ devcage-macos/
 | `~/.claude/CLAUDE.md` | `config/.claude/.CLAUDE.md` |
 | `~/.claude/settings.json` | `config/.claude/settings.json` |
 | `~/.claude/agents` | `config/.claude/agents/` |
+| `~/.claude/skills/<skill>/` | `config/.claude/skills/<skill>/` |
 | `~/.config/wq/config.toml` | `config/wq/config.toml` |
 | `~/.pi/agent/prompts/go.md` | `config/.pi/prompts/go.md` |
 | `~/.pi/agent/extensions/*.ts` | `config/.pi/extensions/*.ts` |
