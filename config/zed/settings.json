@@ -7,6 +7,11 @@
 // custom settings, run `zed: open default settings` from the
 // command palette (cmd-shift-p / ctrl-shift-p)
 {
+  "languages": {
+    "JSON": {
+      "format_on_save": "off"
+    }
+  },
   "disable_ai": false,
   "project_panel": {
     "dock": "right"
