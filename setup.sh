@@ -83,6 +83,9 @@ ln -sfn "$DOTFILES/config/vim"          "$HOME/.config/vim"
 # starship
 ln -sfn "$DOTFILES/config/starship"     "$HOME/.config/starship"
 
+# tmux
+ln -sfn "$DOTFILES/config/tmux"         "$HOME/.config/tmux"
+
 # zed
 mkdir -p "$HOME/.config/zed"
 ln -sf  "$DOTFILES/config/zed/settings.json" "$HOME/.config/zed/settings.json"

@@ -83,11 +83,7 @@ set complete+=kspell
 nnoremap <silent> <leader>ev :e $MYVIMRC<CR>
 nnoremap <silent> <leader>sv :so $MYVIMRC<CR>
 
-" Easy window navigation
-noremap <C-h> <C-w>h
-noremap <C-j> <C-w>j
-noremap <C-k> <C-w>k
-noremap <C-l> <C-w>l
+" Easy window navigation: <C-h/j/k/l> provided by vim-tmux-navigator (also crosses tmux panes)
 
 " disable up, down, left, right keys for insert and visual mode
 inoremap <Up> <NOP>
@@ -156,6 +152,8 @@ Plug 'christoomey/vim-system-copy'
 " fzf for vim — core plugin from Homebrew, then fzf.vim on top
 Plug '/opt/homebrew/opt/fzf'
 Plug 'junegunn/fzf.vim'
+" seamless <C-h/j/k/l> navigation between vim splits and tmux panes
+Plug 'christoomey/vim-tmux-navigator'
 " for ansible
 Plug 'pearofducks/ansible-vim'
 " Auto close parentheses and repeat by dot dot dot

@@ -7,6 +7,7 @@ brew "ripgrep"
 brew "starship"
 brew "node"
 brew "uv"
+brew "tmux"
 
 # GUI Apps
 cask "firefox"
