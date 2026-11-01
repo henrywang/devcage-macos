@@ -29,9 +29,6 @@ if ! command -v rustup &>/dev/null; then
     rustup component add rustfmt clippy
 fi
 
-echo "==> Installing wq..."
-uv tool install --upgrade herdr-workflow
-
 # Scans third-party agent skills before they are added to config/.claude/skills.
 echo "==> Installing SkillSpector..."
 if ! command -v skillspector &>/dev/null && [ ! -x "$HOME/.local/bin/skillspector" ]; then
@@ -114,12 +111,8 @@ for skill in "$DOTFILES"/config/.claude/skills/*/; do
     done
 done
 
-# agent workflow — see WORKFLOW.md. wq itself is installed above with uv; its
-# machine-specific configuration and the Pi router setup are linked from here.
-# ~/.pi/agent/settings.json is rewritten by pi on upgrade, so it is left alone.
-mkdir -p "$HOME/.config/wq" "$HOME/.pi/agent/prompts" "$HOME/.pi/agent/extensions" "$HOME/.pi/agent/skills"
-ln -sf  "$DOTFILES/config/wq/config.toml"     "$HOME/.config/wq/config.toml"
-ln -sf  "$DOTFILES/config/.pi/prompts/go.md" "$HOME/.pi/agent/prompts/go.md"
+# pi — ~/.pi/agent/settings.json is rewritten by pi on upgrade, so it is left alone.
+mkdir -p "$HOME/.pi/agent/prompts" "$HOME/.pi/agent/extensions" "$HOME/.pi/agent/skills"
 ln -sf  "$DOTFILES/config/.claude/.CLAUDE.md" "$HOME/.pi/agent/AGENTS.md"
 
 # ~/brain is a separate private repo (profile, current focus, knowledge base),
@@ -133,12 +126,6 @@ if [ -d "$BRAIN" ]; then
     ln -sf  "$BRAIN/prompts/learn.md" "$HOME/.pi/agent/prompts/learn.md"
 fi
 
-# herdr agent integrations: without these, agent state is inferred from terminal
-# output and panes do not resume across a server restart.
-if command -v herdr &>/dev/null; then
-    herdr integration install pi
-    herdr integration install claude
-fi
 for ext in "$DOTFILES"/config/.pi/extensions/*.ts; do
     [ -e "$ext" ] || continue   # unmatched glob stays literal; set -e would abort on it
     ln -sf "$ext" "$HOME/.pi/agent/extensions/$(basename "$ext")"

@@ -39,8 +39,7 @@ setopt COMPLETE_ALIASES
 
 # Vi mode
 bindkey -v
-# Herdr reserves Ctrl-A as its prefix key.
-bindkey '^b' beginning-of-line
+bindkey '^a' beginning-of-line
 
 # ============================================================
 # Autosuggestion
@@ -58,24 +57,6 @@ ZSH_AUTOSUGGEST_BUFFER_MAX_SIZE=20
 # PATH
 # ============================================================
 export PATH="$HOME/bin:$HOME/.local/bin:$PATH"
-
-# ============================================================
-# Agent workflow (see ~/devcage-macos/WORKFLOW.md)
-# ============================================================
-# One command to get to work: ensure the herdr server, ensure the inbox and its
-# router pane, then attach. Every step is idempotent, so on a warm machine this
-# just reattaches to what was already running.
-work() {
-  case "$(herdr status server 2>/dev/null || true)" in
-    *"status: running"*) ;;
-    *)
-      (herdr server >/dev/null 2>&1 &)
-      until herdr status server 2>/dev/null | grep -q 'status: running'; do sleep 0.2; done
-      ;;
-  esac
-  wq up >/dev/null || return 1
-  herdr
-}
 
 # ============================================================
 # Aliases

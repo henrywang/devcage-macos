@@ -40,8 +40,7 @@ Then open a new shell for all changes to take effect.
 | ripgrep | CLI | Fast recursive search |
 | starship | CLI | Cross-shell prompt |
 | node | CLI | JavaScript runtime |
-| uv | CLI | Python tool and package manager (installs `wq`) |
-| herdr | CLI | Terminal workspace / pane orchestrator for agents |
+| uv | CLI | Python tool and package manager (installs SkillSpector) |
 | firefox | App | Web browser |
 | ghostty | App | Terminal emulator |
 | zed | App | Code editor |
@@ -55,12 +54,9 @@ Then open a new shell for all changes to take effect.
 | Tool | Installer | Purpose |
 |------|-----------|---------|
 | Rust + rustfmt + clippy | rustup | Systems programming |
-| wq | `uv tool install herdr-workflow` | Multi-agent workflows on top of herdr |
 | Claude Code | npm | AI coding assistant |
 | pi | pi.dev install script | AI coding agent |
 | SkillSpector | `uv tool install` (pinned to v2.13.2) | Security scan for third-party agent skills |
-
-`herdr` and `pi` together drive the agent workflow — see [WORKFLOW.md](WORKFLOW.md).
 
 ### Claude Code skills (`config/.claude/skills/`)
 
@@ -86,7 +82,6 @@ Third-party skills are kept as a copy of the exact files that were scanned. To a
 devcage-macos/
 ├── Brewfile                              # Homebrew packages
 ├── setup.sh                             # Setup automation
-├── WORKFLOW.md                          # herdr + pi agent workflow
 └── config/
     ├── .claude/                         # Claude Code global config
     │   ├── .CLAUDE.md                   # Global instructions
@@ -95,14 +90,11 @@ devcage-macos/
     │   └── skills/                      # Global skills (scanned copies)
     │       └── no-ai-slop/              # AI-slop detection and editing
     ├── .pi/
-    │   ├── prompts/go.md                # pi router prompt
     │   ├── extensions/                  # pi extensions (TypeScript)
     │   │   ├── claude-project-skills.ts # Expose .claude/skills to pi
     │   │   └── gpt-usage.ts             # ChatGPT usage in the pi footer
     │   └── skills/
     │       └── browser/SKILL.md         # Playwright CLI browser automation
-    ├── wq/
-    │   └── config.toml                  # machine-specific wq configuration
     ├── com.mitchellh.ghostty/
     │   └── config.ghostty               # Ghostty terminal config
     ├── git/
@@ -139,8 +131,8 @@ devcage-macos/
 | `~/.claude/settings.json` | `config/.claude/settings.json` |
 | `~/.claude/agents` | `config/.claude/agents/` |
 | `~/.claude/skills/<skill>/` | `config/.claude/skills/<skill>/` |
-| `~/.config/wq/config.toml` | `config/wq/config.toml` |
-| `~/.pi/agent/prompts/go.md` | `config/.pi/prompts/go.md` |
+| `~/.pi/agent/AGENTS.md` | `config/.claude/.CLAUDE.md` |
+| `~/.pi/agent/skills/<skill>/` | `config/.claude/skills/<skill>/` |
 | `~/.pi/agent/extensions/*.ts` | `config/.pi/extensions/*.ts` |
 | `~/.pi/agent/skills/<skill>/` | `config/.pi/skills/<skill>/` |
 
