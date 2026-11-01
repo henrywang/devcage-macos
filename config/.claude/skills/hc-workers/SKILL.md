@@ -62,25 +62,26 @@ any other `$` or backtick in the brief.
 
 ## Start a worker
 
-Pass the brief as the first message. A task sent to an agent that is still
-starting can be dropped.
+Pass the brief as the first message, since a task sent to an agent that is
+still starting can be dropped. Open its pane straight away, in the same
+command, before you wait: a quick worker can finish during the wait, and the
+user should see it working.
 
 ```sh
 hc run --bg --name fix-auth --cwd ~/Workspace/project/repo-worktrees/fix-auth claude "$brief"
-hc run --bg --name review --cwd ~/Workspace/project/repo pi "$brief"
+~/.claude/skills/hc-workers/scripts/hc-pane fix-auth right
 hc wait fix-auth --timeout 110
 ```
 
 - Give every worker a short name and an exact scope.
 - Claude workers default to the user's model. Pass `--model` only when the user
   asks for one. pi defaults to the user's pi settings.
+- `hc-pane <name> right|down|window`: use `window` once the current tmux window
+  already has three panes. Skip the pane only if the user asked for headless.
+  Focus stays on your pane, and the pane closes when the worker exits.
 - If `hc wait` times out right after launch, run `hc read <name>`. A
   folder-trust prompt is a security decision: ask the user, don't accept it.
   A new worktree folder can show one.
-- Then open the worker for the user, unless they asked for headless:
-  `~/.claude/skills/hc-workers/scripts/hc-pane <name> right|down|window`
-  Use `window` once the current tmux window already has three panes. Focus
-  stays on your pane, and the new pane closes when the worker exits.
 
 ## Wait and collect
 
@@ -102,7 +103,9 @@ a permission decision.
 
 ## Clean up
 
-- `hc kill <name>` ends a worker, and its pane closes on its own.
+- `hc kill <name> && hc rm <name>` ends a worker and frees its name. A killed
+  terminal stays in hc as finished until removed, and `hc get` still matches it.
+  Its pane closes on its own.
 - Once the user has merged or dropped a worker's branch, remove its worktree
   with `git -C <repo> worktree remove ../<repo>-worktrees/<name>`. Without
   `--force` it refuses when there are uncommitted changes; ask the user then,
