@@ -65,6 +65,24 @@ alias ls='lsd'
 alias ll='ls -alh'
 
 # ============================================================
+# Agents
+# ============================================================
+# Run the coordinating Claude Code inside hc, so the workers it starts are its
+# children and can report back to it. Reattaches if it is already running.
+# hc-pane reads the tmux pane labels to open workers beside it.
+lead() {
+    local name=${1:-lead}
+    if [ -z "$TMUX" ]; then
+        echo "lead: run it inside tmux" >&2
+        return 1
+    fi
+    # --rm because hc get also matches finished terminals, which would block a restart
+    hc get "$name" >/dev/null 2>&1 || hc run --bg --rm --no-parent --name "$name" --cwd "$PWD" claude >/dev/null || return
+    hc label "$name" tmux_pane="$TMUX_PANE" tmux_socket="${TMUX%%,*}" >/dev/null
+    hc attach "$name"
+}
+
+# ============================================================
 # Terminal Integration (foot/ghostty compatible)
 # ============================================================
 function osc7-pwd() {
