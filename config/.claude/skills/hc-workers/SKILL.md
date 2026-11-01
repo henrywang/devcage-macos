@@ -98,8 +98,19 @@ hc wait fix-auth --timeout 110
 ## Blocked workers
 
 Status `blocked` means a worker is waiting on a permission prompt or a question.
-Tell the user which pane needs them. Never use `hc send --force` to get past
-a permission decision.
+You learn it one of two ways:
+
+- While you wait on the worker, `hc wait <name>` returns `"status":"blocked"`.
+  `hc get <name>` then shows `kind` (such as `permission`) and `msg` (such as
+  `approve Write: <path>`). No note follows.
+- While you are idle, hc types a note into your input:
+  `<hc>t1q fix-auth is blocked (permission). See: hc read t1q</hc>`. A `<hc>`
+  tag without `from` comes from hc itself, not from a worker.
+
+Tell the user which pane needs them and what the prompt asks. Never answer it
+yourself, and never use `hc send --force` to get past a permission decision.
+Don't wait on a worker that is already blocked: `hc wait --children any`
+waits for the next change, so it times out instead of returning.
 
 ## Clean up
 
