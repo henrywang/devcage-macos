@@ -1,0 +1,37 @@
+#!/bin/sh
+# Open a tmux split or window attached to an hc terminal, so a person can watch
+# a worker and answer its prompts. The pane closes when the worker exits.
+# Usage: hc-pane <terminal> [right|down|window]
+set -e
+if [ $# -lt 1 ]; then
+    echo "usage: hc-pane <terminal> [right|down|window]" >&2
+    exit 2
+fi
+target=$1
+placement=${2:-right}
+
+hc get "$target" >/dev/null
+
+# The coordinator runs under hc, not tmux, so it has no $TMUX of its own.
+# `lead` records the tmux pane it is attached from as labels on its terminal.
+label() {
+    hc get "${HC_TERMINAL_ID:?run this from inside an hc terminal}" --json |
+        grep -o "\"$1\":\"[^\"]*\"" | sed 's/.*:"\(.*\)"/\1/'
+}
+pane=$(label tmux_pane)
+socket=$(label tmux_socket)
+if [ -z "$pane" ] || [ -z "$socket" ]; then
+    echo "hc-pane: no tmux pane recorded for $HC_TERMINAL_ID; start the coordinator with lead inside tmux" >&2
+    exit 1
+fi
+
+attach="$(command -v hc) attach $target"
+case $placement in
+    right)  tmux -S "$socket" split-window -d -h -t "$pane" -c "$PWD" "$attach" ;;
+    down)   tmux -S "$socket" split-window -d -v -t "$pane" -c "$PWD" "$attach" ;;
+    window)
+        window=$(tmux -S "$socket" display-message -p -t "$pane" '#{session_name}:#{window_index}')
+        tmux -S "$socket" new-window -d -a -t "$window" -c "$PWD" -n "$target" "$attach"
+        ;;
+    *) echo "hc-pane: placement must be right, down or window" >&2; exit 2 ;;
+esac
