@@ -96,19 +96,22 @@ ln -sf  "$DOTFILES/config/com.mitchellh.ghostty/config.ghostty" \
         "$HOME/Library/Application Support/com.mitchellh.ghostty/config.ghostty"
 
 # claude code — global instructions, settings, agents, and skills
-mkdir -p "$HOME/.claude/skills"
+mkdir -p "$HOME/.claude/skills" "$HOME/.pi/agent/skills"
 ln -sf  "$DOTFILES/config/.claude/.CLAUDE.md"   "$HOME/.claude/CLAUDE.md"
 ln -sf  "$DOTFILES/config/.claude/settings.json" "$HOME/.claude/settings.json"
 ln -sfn "$DOTFILES/config/.claude/agents"        "$HOME/.claude/agents"
-# One symlink per skill: ~/.claude/skills also holds skills Claude syncs itself (synced/).
+# One symlink per skill, into both Claude and Pi. Linking the whole ~/.claude/skills
+# into Pi would also pull in synced/, which Claude manages and which uses Claude-only tools.
 for skill in "$DOTFILES"/config/.claude/skills/*/; do
     [ -d "$skill" ] || continue
-    dest="$HOME/.claude/skills/$(basename "$skill")"
-    if [ -e "$dest" ] && [ ! -L "$dest" ]; then
-        echo "    skipping $(basename "$skill"): $dest exists and is not a symlink"
-    else
-        ln -sfn "${skill%/}" "$dest"
-    fi
+    for skills_dir in "$HOME/.claude/skills" "$HOME/.pi/agent/skills"; do
+        dest="$skills_dir/$(basename "$skill")"
+        if [ -e "$dest" ] && [ ! -L "$dest" ]; then
+            echo "    skipping $(basename "$skill"): $dest exists and is not a symlink"
+        else
+            ln -sfn "${skill%/}" "$dest"
+        fi
+    done
 done
 
 # agent workflow — see WORKFLOW.md. wq itself is installed above with uv; its
@@ -117,6 +120,18 @@ done
 mkdir -p "$HOME/.config/wq" "$HOME/.pi/agent/prompts" "$HOME/.pi/agent/extensions" "$HOME/.pi/agent/skills"
 ln -sf  "$DOTFILES/config/wq/config.toml"     "$HOME/.config/wq/config.toml"
 ln -sf  "$DOTFILES/config/.pi/prompts/go.md" "$HOME/.pi/agent/prompts/go.md"
+ln -sf  "$DOTFILES/config/.claude/.CLAUDE.md" "$HOME/.pi/agent/AGENTS.md"
+
+# ~/brain is a separate private repo (profile, current focus, knowledge base),
+# so it is linked only when it has been cloned.
+BRAIN="$HOME/brain"
+if [ -d "$BRAIN" ]; then
+    mkdir -p "$HOME/.claude/commands"
+    ln -sfn "$BRAIN/skills/kb"        "$HOME/.claude/skills/kb"
+    ln -sfn "$BRAIN/skills/kb"        "$HOME/.pi/agent/skills/kb"
+    ln -sf  "$BRAIN/prompts/learn.md" "$HOME/.claude/commands/learn.md"
+    ln -sf  "$BRAIN/prompts/learn.md" "$HOME/.pi/agent/prompts/learn.md"
+fi
 
 # herdr agent integrations: without these, agent state is inferred from terminal
 # output and panes do not resume across a server restart.
