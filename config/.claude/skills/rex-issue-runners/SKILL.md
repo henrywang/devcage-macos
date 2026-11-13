@@ -24,7 +24,7 @@ one PR. Load the `rex` skill too if Rex commands are unfamiliar.
 | Tests that take over the screen (UI, E2E), one at a time | Coordinator |
 | Update a branch that overlaps a merged PR | Coordinator (or tells the runner) |
 | Merge, after the user's go-ahead | Coordinator |
-| Close tab, remove worktree, delete branch, check milestone | Coordinator |
+| Close tab, remove worktree, delete branch, sync local `main`, check milestone | Coordinator |
 
 Rules that keep this safe:
 
@@ -144,7 +144,13 @@ rex window new -s "$REX_SESSION" "#N" -c ../<repo>-worktrees/issue-N \
 
 ## Clean up after each merge
 
+The main checkout belongs to the coordinator, so it syncs local `main` after
+every merge. Runners work in worktrees and never touch it. If the main checkout
+has uncommitted changes or isn't on `main`, tell the user instead of stashing or
+switching.
+
 ```sh
+git -C <repo> pull --ff-only origin main
 git worktree remove ../<repo>-worktrees/issue-N
 git branch -D <branch>
 rex window close -s "$REX_SESSION" <window>
